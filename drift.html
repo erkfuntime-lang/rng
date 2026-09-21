@@ -1,0 +1,3611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drift &mdash; Number Discovery Instrument</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+<style>
+  :root {
+    --bg: #0B0D10;
+    --bg-2: #0F1216;
+    --panel: #14171D;
+    --panel-2: #191D24;
+    --border: #262B33;
+    --border-soft: #1D2129;
+    --text: #ECE9E2;
+    --text-dim: #8A8F98;
+    --text-faint: #565C67;
+    --accent: #E8A33D;
+    --accent-dim: #7A5A28;
+    --c-common: #7B828F;
+    --c-uncommon: #4FD1C5;
+    --c-rare: #5B8DEF;
+    --c-epic: #B565D9;
+    --c-anomaly: #FF6B6B;
+    --c-mythic: #FFD166;
+    --radius: 10px;
+    --font-ui: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+  }
+  /* This instrument keeps a single dark register regardless of system theme --
+     the low-glow dial aesthetic is the point, not a light/dark toggle. */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0B0D10; --panel: #14171D; --text: #ECE9E2;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0B0D10; --panel: #14171D; --text: #ECE9E2;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(232,163,61,0.06), transparent 60%),
+      radial-gradient(ellipse 700px 400px at 90% 100%, rgba(91,141,239,0.04), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  #app { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 0 20px 60px; }
+
+  a { color: inherit; }
+  button { font-family: inherit; }
+
+  ::selection { background: var(--accent); color: #1A1200; }
+
+  /* focus visibility */
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 0 16px;
+    flex-wrap: wrap; gap: 14px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand-mark {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px 2px rgba(232,163,61,0.5);
+  }
+  .brand-name { font-weight: 600; font-size: 19px; letter-spacing: 0.01em; }
+  .brand-sub { color: var(--text-faint); font-size: 12.5px; font-family: var(--font-mono); }
+
+  .stat-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stat-chip {
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    padding: 7px 12px;
+    display: flex; flex-direction: column; align-items: flex-start;
+    min-width: 84px;
+  }
+  .stat-chip .v { font-family: var(--font-mono); font-size: 15px; font-weight: 600; }
+  .stat-chip .l { font-size: 10.5px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 1px; }
+
+  /* ---------- nav ---------- */
+  .nav {
+    display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft);
+    margin-bottom: 30px; overflow-x: auto;
+  }
+  .nav button {
+    background: none; border: none; color: var(--text-dim);
+    padding: 10px 16px; font-size: 14px; cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    transition: color 0.15s;
+  }
+  .nav button:hover { color: var(--text); }
+  .nav button.active { color: var(--text); border-bottom-color: var(--accent); }
+
+  .view { display: none; }
+  .view.active { display: block; animation: viewIn 0.25s ease; }
+  @keyframes viewIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- roll screen ---------- */
+  .roll-stage {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 30px 16px 10px;
+    text-align: center;
+  }
+  .reel-row {
+    display: flex; gap: 6px; justify-content: center;
+    filter: drop-shadow(0 0 30px rgba(232,163,61,0));
+    transition: filter 0.4s;
+  }
+  .reel-row.glow { filter: drop-shadow(0 0 34px rgba(232,163,61,0.18)); }
+  .reel-row.rated { filter: drop-shadow(0 0 26px var(--tier-color, transparent)); }
+  .reel-frame { position: relative; display: inline-block; margin-bottom: 22px; z-index: 56; }
+  .rating-pill {
+    position: absolute; top: -13px; left: 50%;
+    transform: translateX(-50%) scale(0.75);
+    padding: 4px 15px; border-radius: 999px;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 0.1em; text-transform: uppercase;
+    background: var(--panel); border: 1px solid var(--tier-color, var(--border));
+    color: var(--tier-color, var(--text-dim));
+    box-shadow: 0 0 0 rgba(0,0,0,0);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.35s cubic-bezier(.25,1.6,.4,1), box-shadow 0.3s;
+    white-space: nowrap; z-index: 2;
+  }
+  .rating-pill.show {
+    opacity: 1; transform: translateX(-50%) scale(1);
+    box-shadow: 0 0 16px 0 var(--tier-color, transparent);
+  }
+
+  /* ---------- tiered ambient auras (applied to the reel frame post-roll) ----------
+     Base appearance is unscoped (always applies). The actual motion is driven
+     by anime.js from the app script; the @keyframes below only fire under
+     .no-anime, which JS adds to <html> if the anime.js CDN script failed to
+     load -- so these effects still work, just via CSS instead of JS. */
+  .no-anime .reel-frame.aura-rare .reel-row { animation: breatheGlow 2.6s ease-in-out infinite; }
+  .no-anime .reel-frame.aura-epic .reel-row { animation: breatheGlow 2.1s ease-in-out infinite; }
+  @keyframes breatheGlow {
+    0%, 100% { filter: drop-shadow(0 0 18px var(--tier-color, transparent)); }
+    50% { filter: drop-shadow(0 0 32px var(--tier-color, transparent)); }
+  }
+  /* Mythic rays are an SVG element, spun up and looped by anime.js
+     (see startMythicRays in the app script) rather than a CSS keyframe --
+     that's what lets the spin-up, glow and cutscene stay in sync. */
+  .mythic-rays {
+    position: absolute; left: 50%; top: 50%;
+    width: 260px; height: 260px; margin: -130px 0 0 -130px;
+    z-index: -1; pointer-events: none; opacity: 0;
+  }
+
+  .spark {
+    position: absolute; bottom: 8px; width: 4px; height: 4px; border-radius: 50%;
+    background: var(--tier-color, var(--accent));
+    box-shadow: 0 0 7px 1px var(--tier-color, var(--accent));
+    opacity: 0; pointer-events: none;
+  }
+  .no-anime .spark { animation: sparkRise 1.2s ease-out forwards; }
+  @keyframes sparkRise {
+    0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+    15% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--drift, 0px), -74px) scale(1); }
+  }
+  .radar-ping {
+    position: absolute; left: 50%; top: 50%; width: 44px; height: 44px;
+    margin: -22px 0 0 -22px; border-radius: 50%;
+    border: 2px solid var(--tier-color, var(--accent));
+    opacity: 0.75; pointer-events: none;
+  }
+  .no-anime .radar-ping { animation: radarExpand 1.15s ease-out forwards; }
+  @keyframes radarExpand { 0% { transform: scale(0.4); opacity: 0.7; } 100% { transform: scale(4.4); opacity: 0; } }
+
+  /* ---------- suspense / temperature bar under the reel ---------- */
+  .charge-track {
+    width: 210px; max-width: 78vw; height: 4px;
+    background: var(--panel-2); border-radius: 3px; overflow: hidden;
+    margin: 2px auto 16px;
+  }
+  .charge-fill {
+    height: 100%; width: 0%; border-radius: 3px;
+    background: var(--accent);
+  }
+
+  /* ---------- mythic cutscene: full-screen takeover ---------- */
+  .cutscene-stage {
+    position: fixed; inset: 0; z-index: 200;
+    display: none; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 48%, #241708 0%, #0A0602 65%, #030201 100%);
+    overflow: hidden;
+  }
+  .cutscene-stage.active { display: flex; pointer-events: auto; }
+  .cutscene-bar {
+    position: absolute; left: 0; right: 0; height: 15vh; background: #000;
+    z-index: 4;
+  }
+  .cutscene-bar-top { top: 0; transform: translateY(-100%); }
+  .cutscene-bar-bottom { bottom: 0; transform: translateY(100%); }
+  .cutscene-flash {
+    position: absolute; inset: 0; z-index: 3; pointer-events: none;
+    background: radial-gradient(circle at 50% 48%, rgba(255,229,154,0.9), transparent 62%);
+    opacity: 0;
+  }
+  .cutscene-rays {
+    position: absolute; left: 50%; top: 50%;
+    width: min(900px, 140vw); height: min(900px, 140vw);
+    margin-left: calc(min(900px, 140vw) / -2); margin-top: calc(min(900px, 140vw) / -2);
+    z-index: 1; opacity: 0; pointer-events: none;
+  }
+  .cutscene-content {
+    position: relative; z-index: 2; text-align: center; padding: 0 24px;
+  }
+  .cutscene-eyebrow {
+    font-family: var(--font-mono); font-size: clamp(10px, 1.6vw, 13px);
+    letter-spacing: 0.35em; text-transform: uppercase;
+    color: rgba(255,229,154,0.75); opacity: 0; margin-bottom: 10px;
+  }
+  .cutscene-number {
+    font-family: var(--font-mono); font-weight: 700;
+    font-size: clamp(46px, 11vw, 128px); line-height: 1;
+    color: #FFF8E7; letter-spacing: 0.01em;
+    text-shadow: 0 0 40px rgba(255,209,102,0.65), 0 0 110px rgba(255,209,102,0.35);
+    opacity: 0; transform: scale(0.72);
+  }
+  .cutscene-title {
+    margin-top: 16px;
+    font-family: var(--font-ui); font-weight: 700;
+    font-size: clamp(16px, 3.2vw, 27px);
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: #FFE59A;
+    text-shadow: 0 0 26px rgba(255,209,102,0.85), 0 0 64px rgba(255,209,102,0.4);
+    opacity: 0; white-space: nowrap;
+  }
+  .cutscene-sub {
+    margin-top: 12px;
+    font-family: var(--font-mono); font-size: clamp(11px, 1.6vw, 13px);
+    color: rgba(230,225,215,0.65); letter-spacing: 0.1em;
+    opacity: 0;
+  }
+  .cutscene-skip {
+    position: absolute; bottom: 18px; right: 20px; z-index: 5;
+    font-family: var(--font-mono); font-size: 11px; color: rgba(255,255,255,0.35);
+    letter-spacing: 0.08em; opacity: 0; pointer-events: none;
+  }
+  .cutscene-stage.active .cutscene-skip { opacity: 1; transition: opacity 0.4s 0.6s; }
+  /* All transforms/opacities above are driven directly by the anime.js
+     timeline in playMythicCutscene(), not CSS keyframes -- that's what lets
+     the bars, rays, number, title and shake all stay on one shared clock. */
+
+  /* ---------- EP shockwave ---------- */
+  .ep-shock {
+    position: absolute; left: 50%; top: 50%; width: 60px; height: 60px;
+    margin: -30px 0 0 -30px; border-radius: 50%;
+    border: 2px solid var(--tier-color, var(--accent));
+    opacity: 0.7; pointer-events: none;
+  }
+  .no-anime .ep-shock { animation: radarExpand 0.9s ease-out forwards; }
+
+  /* ---------- personal-best ribbon ---------- */
+  .pb-ribbon {
+    position: absolute; top: 10px; right: -6px;
+    background: var(--accent); color: #191205;
+    font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+    letter-spacing: 0.06em; padding: 4px 12px 4px 14px;
+    border-radius: 4px 0 0 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+    animation: ribbonPop 0.5s cubic-bezier(.25,1.6,.4,1);
+  }
+  @keyframes ribbonPop {
+    0% { transform: scale(0) rotate(6deg); opacity: 0; }
+    60% { transform: scale(1.15) rotate(6deg); opacity: 1; }
+    100% { transform: scale(1) rotate(6deg); opacity: 1; }
+  }
+
+  /* ---------- milestone celebration ---------- */
+  .milestone-overlay {
+    position: fixed; inset: 0; z-index: 70;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(5,4,2,0); pointer-events: none;
+    transition: background 0.4s ease; overflow: hidden;
+  }
+  .milestone-overlay.show { background: rgba(5,4,2,0.6); }
+  .milestone-card {
+    background: var(--panel); border: 1px solid var(--accent); border-radius: 14px;
+    padding: 26px 40px; text-align: center;
+    transform: scale(0.7); opacity: 0;
+    transition: transform 0.4s cubic-bezier(.22,1.6,.4,1), opacity 0.3s;
+    box-shadow: 0 0 40px rgba(232,163,61,0.25);
+  }
+  .milestone-overlay.show .milestone-card { transform: scale(1); opacity: 1; }
+  .milestone-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.25em; color: var(--accent); margin-bottom: 6px; }
+  .milestone-text { font-family: var(--font-ui); font-weight: 600; font-size: 20px; }
+  .confetti-piece {
+    position: absolute; top: -12px; width: 6px; height: 11px; opacity: 0.9;
+    animation: confettiFall linear forwards;
+  }
+  @keyframes confettiFall { to { transform: translateY(112vh) rotate(420deg); opacity: 0.15; } }
+  .digit-cell {
+    width: 58px; height: 84px;
+    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .digit-cell::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), transparent 30%, transparent 70%, rgba(0,0,0,0.25));
+    pointer-events: none;
+  }
+  .digit-cell .digit-track {
+    font-family: var(--font-mono); font-weight: 600; font-size: 42px;
+    color: var(--text);
+  }
+  .digit-cell.spinning .digit-track { filter: blur(1.5px); }
+  .digit-cell.settled { box-shadow: inset 0 0 0 1px rgba(232,163,61,0.35); }
+
+  .status-line {
+    font-family: var(--font-mono); font-size: 13.5px; color: var(--text-dim);
+    min-height: 20px; margin-bottom: 22px;
+    letter-spacing: 0.01em;
+  }
+
+  .roll-btn {
+    background: var(--accent); color: #191205;
+    border: none; border-radius: 999px;
+    font-family: var(--font-ui); font-weight: 600; font-size: 15.5px;
+    padding: 15px 42px;
+    cursor: pointer;
+    letter-spacing: 0.01em;
+    transition: transform 0.12s, box-shadow 0.2s, background 0.2s;
+    box-shadow: 0 0 0 rgba(232,163,61,0);
+  }
+  .roll-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(232,163,61,0.25); }
+  .roll-btn:active:not(:disabled) { transform: translateY(0); }
+  .roll-btn:disabled { opacity: 0.55; cursor: default; }
+
+  .roll-again-row { display: flex; gap: 10px; justify-content: center; margin-top: 6px; }
+  .ghost-btn {
+    background: transparent; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 999px;
+    font-size: 13.5px; padding: 9px 18px; cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .ghost-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+
+  /* discovery feed */
+  .discoveries {
+    max-width: 640px; margin: 34px auto 0; text-align: left;
+  }
+  .discoveries-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+  }
+  .discoveries-head h3 { margin: 0; font-size: 14px; color: var(--text-dim); font-weight: 500; letter-spacing: 0.02em; }
+  .discoveries-head .count { font-family: var(--font-mono); font-size: 13px; color: var(--text-faint); }
+
+  .badge-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 8px;
+    margin-bottom: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--tier-color, var(--c-common));
+    opacity: 0; transform: translateY(6px) scale(0.98);
+    flex-wrap: wrap;
+  }
+  .badge-row.pop {
+    animation: badgePop 0.45s cubic-bezier(.2,1.4,.4,1) forwards;
+  }
+  .badge-row.pop.newbadge { animation: badgePopNew 0.6s cubic-bezier(.2,1.4,.4,1) forwards; }
+  .badge-row.pop.newbadge.big { animation: badgePopBig 0.85s cubic-bezier(.2,1.5,.4,1) forwards; }
+  @keyframes badgePop { 0% { opacity: 0; transform: translateY(-8px) scale(0.9); } 60% { opacity: 1; transform: translateY(0) scale(1.03); } 100% { opacity: 1; transform: none; } }
+  @keyframes badgePopNew { 0% { opacity: 0; transform: scale(0.7); } 45% { opacity: 1; transform: scale(1.12); } 70% { transform: scale(0.97); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes badgePopBig { 0% { opacity: 0; transform: scale(0.5); } 40% { opacity: 1; transform: scale(1.22); } 60% { transform: scale(0.94); } 80% { transform: scale(1.05); } 100% { opacity: 1; transform: scale(1); } }
+
+  /* suspense / buildup row shown briefly before a higher-tier badge resolves */
+  .badge-suspense {
+    height: 42px; border-radius: 8px; margin-bottom: 6px;
+    background: var(--panel); border: 1px solid var(--border-soft);
+    border-left: 3px solid var(--tier-color, var(--c-common));
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; padding: 0 14px;
+    opacity: 0; animation: suspenseIn 0.2s ease forwards;
+  }
+  @keyframes suspenseIn { to { opacity: 1; } }
+  .badge-suspense::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, var(--tier-color, var(--accent)) 50%, transparent);
+    opacity: 0.22;
+    animation: chargeSweep 0.85s ease-in-out infinite;
+  }
+  @keyframes chargeSweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+  .badge-suspense .charge-label {
+    font-family: var(--font-mono); font-size: 11px; color: var(--tier-color, var(--text-dim));
+    letter-spacing: 0.1em; text-transform: uppercase; z-index: 1;
+  }
+
+  /* full-viewport flash for big discoveries */
+  .flash-overlay {
+    position: fixed; inset: 0; pointer-events: none; z-index: 60;
+    background: radial-gradient(circle at 50% 26%, var(--flash-color, transparent), transparent 62%);
+    opacity: 0;
+  }
+  .flash-overlay.fire { animation: flashPulse 0.7s ease-out; }
+  .flash-overlay.linger { animation: flashLinger 2.4s ease-out; }
+  @keyframes flashPulse { 0% { opacity: 0; } 25% { opacity: 0.4; } 100% { opacity: 0; } }
+  @keyframes flashLinger { 0% { opacity: 0.22; } 100% { opacity: 0; } }
+  /* the shake is now a small anime.js translateX sequence on #app,
+     triggered directly from playMythicCutscene() -- no CSS keyframe needed. */
+
+  .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tier-color, var(--c-common)); flex-shrink: 0; box-shadow: 0 0 8px 1px var(--tier-color, transparent); }
+  .badge-info { flex: 1; min-width: 0; }
+  .badge-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .badge-desc { font-size: 12px; color: var(--text-faint); margin-top: 1px; }
+  .new-flag {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em;
+    color: #191205; background: var(--accent);
+    padding: 1px 6px; border-radius: 4px;
+  }
+  .support-flag { font-size: 10.5px; color: var(--text-faint); font-style: italic; }
+  .badge-ep { font-family: var(--font-mono); font-size: 13px; color: var(--tier-color, var(--text-dim)); white-space: nowrap; }
+  .badge-tier { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--tier-color, var(--text-faint)); white-space: nowrap; width: 64px; text-align: right; }
+
+  /* digit-strip: the rolled number rendered as boxes, with the digits
+     that earned a given badge picked out in green. */
+  .digit-strip { display: flex; gap: 2px; flex-shrink: 0; }
+  .digit-strip .dbox {
+    width: 19px; height: 24px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 12.5px; font-weight: 600;
+    color: var(--text-faint);
+    background: var(--panel-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 4px;
+  }
+  .digit-strip .dbox.hit {
+    color: #eafff3;
+    background: rgba(74, 222, 128, 0.14);
+    border: 1px solid #4ADE80;
+    box-shadow: 0 0 6px 0 rgba(74,222,128,0.35);
+  }
+  .digit-strip.sm .dbox { width: 15px; height: 19px; font-size: 10.5px; }
+
+  .summary-card {
+    max-width: 640px; margin: 22px auto 0;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 22px;
+    text-align: center; position: relative;
+    opacity: 0; transform: translateY(8px);
+  }
+  .summary-card.show { animation: summaryIn 0.4s ease forwards; }
+  @keyframes summaryIn { to { opacity: 1; transform: none; } }
+  .summary-number { font-family: var(--font-mono); font-size: 15px; color: var(--text-dim); letter-spacing: 0.05em; }
+  .summary-ep { font-family: var(--font-mono); font-size: 34px; font-weight: 700; margin: 6px 0 2px; position: relative; display: inline-block; }
+  .summary-meta { font-size: 12.5px; color: var(--text-faint); }
+  .share-btn { margin-top: 14px; }
+  .onboard-hint {
+    max-width: 560px; margin: 0 auto 20px; text-align: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px;
+    font-size: 13px; color: var(--text-dim); line-height: 1.5;
+  }
+  .onboard-hint button {
+    display: block; margin: 10px auto 0;
+    background: var(--accent); color: #191205; border: none;
+    border-radius: 999px; padding: 6px 18px; font-size: 12.5px; font-weight: 600;
+    cursor: pointer;
+  }
+
+  .near-miss {
+    max-width: 640px; margin: 14px auto 0; text-align: left;
+    font-size: 12.5px; color: var(--text-faint);
+    border-left: 2px solid var(--border);
+    padding: 6px 0 6px 12px;
+  }
+  .near-miss b { color: var(--text-dim); font-weight: 500; }
+
+  /* ---------- collection ---------- */
+  .collection-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .progress-track { flex: 1; min-width: 160px; height: 6px; background: var(--panel-2); border-radius: 4px; overflow: hidden; margin: 0 16px; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
+  .collection-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 22px; }
+  .collection-filters input[type=text] {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 11px; font-size: 13px; flex: 1; min-width: 160px;
+  }
+  .collection-filters select {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 10px; font-size: 13px;
+  }
+  .filter-checkbox { font-size: 12.5px; color: var(--text-dim); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .category-block { margin-bottom: 26px; }
+  .category-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    cursor: pointer; user-select: none;
+  }
+  .category-title { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .category-caret { font-size: 10px; color: var(--text-faint); transition: transform 0.2s; }
+  .category-block.collapsed .category-caret { transform: rotate(-90deg); }
+  .category-block.collapsed .badge-grid { display: none; }
+  .category-progress-track { flex: 1; height: 4px; background: var(--panel-2); border-radius: 3px; overflow: hidden; max-width: 160px; }
+  .category-progress-fill { height: 100%; background: var(--accent-dim); }
+  .category-count { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); white-space: nowrap; }
+  .badge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .badge-card {
+    background: var(--panel); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 10px 12px;
+    border-left: 3px solid var(--tier-color, var(--border));
+  }
+  .badge-card.locked { opacity: 0.45; border-left-color: var(--border); }
+  .badge-card .bc-name { font-size: 13px; font-weight: 600; }
+  .badge-card .bc-desc { font-size: 11.5px; color: var(--text-faint); margin-top: 3px; min-height: 28px; }
+  .badge-card .bc-example { margin-top: 8px; }
+  .badge-card .bc-extra { font-size: 10.5px; color: var(--text-faint); margin-top: 6px; font-family: var(--font-mono); }
+  .badge-card .bc-meta { display: flex; justify-content: space-between; margin-top: 7px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-faint); }
+  .badge-card .bc-meta .tier { color: var(--tier-color, var(--text-faint)); }
+
+  /* ---------- history ---------- */
+  .history-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px; border-radius: 8px;
+    background: var(--panel); border: 1px solid var(--border-soft);
+    margin-bottom: 6px; cursor: pointer;
+  }
+  .history-row:hover { border-color: var(--border); }
+  .hr-number { font-family: var(--font-mono); font-size: 16px; font-weight: 600; width: 110px; flex-shrink: 0; }
+  .hr-rarity { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; width: 80px; flex-shrink: 0; }
+  .hr-ep { font-family: var(--font-mono); font-size: 13px; color: var(--text-dim); width: 90px; flex-shrink: 0; }
+  .hr-badges { font-size: 12px; color: var(--text-faint); flex: 1; }
+  .hr-time { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); flex-shrink: 0; }
+  .empty-state { text-align: center; color: var(--text-faint); padding: 60px 20px; font-size: 14px; }
+
+  /* ---------- statistics ---------- */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 26px; }
+  .stat-card { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 8px; padding: 14px 16px; }
+  .stat-card .sv { font-family: var(--font-mono); font-size: 22px; font-weight: 700; }
+  .stat-card .sl { font-size: 11px; color: var(--text-faint); margin-top: 3px; }
+  .bar-chart { display: flex; align-items: flex-end; gap: 6px; height: 120px; margin-top: 8px; }
+  .bar-chart .bar { flex: 1; background: linear-gradient(180deg, var(--accent), var(--accent-dim)); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+  .bar-chart .bar span { position: absolute; bottom: -18px; left: 0; right: 0; text-align: center; font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); }
+  .line-chart { width: 100%; height: 130px; display: block; margin-top: 6px; }
+
+  /* ---------- research panel ---------- */
+  .research-panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 20px;
+  }
+  .research-panel h3 { margin: 0 0 12px; font-size: 14px; color: var(--text-dim); }
+  .research-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .research-controls input[type=text] {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 7px 10px; font-family: var(--font-mono); width: 120px;
+  }
+  .small-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+    border-radius: 6px; padding: 7px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .small-btn:hover { color: var(--text); border-color: var(--accent-dim); }
+  .research-log { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); max-height: 140px; overflow-y: auto; white-space: pre-wrap; }
+
+  footer.foot { text-align: center; padding: 30px 0 10px; color: var(--text-faint); font-size: 11.5px; }
+  footer.foot button { background: none; border: none; color: var(--text-faint); text-decoration: underline; cursor: pointer; font-size: 11.5px; padding: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+  @media (max-width: 560px) {
+    .digit-cell { width: 40px; height: 60px; }
+    .digit-cell .digit-track { font-size: 28px; }
+    .reel-row { gap: 4px; flex-wrap: wrap; }
+    .hr-badges { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark" id="brandPulse"></div>
+      <div>
+        <div class="brand-name">Drift</div>
+        <div class="brand-sub">number discovery instrument</div>
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat-chip"><div class="v" id="statEP">0</div><div class="l">Lifetime EP</div></div>
+      <div class="stat-chip"><div class="v" id="statRolls">0</div><div class="l">Rolls</div></div>
+      <div class="stat-chip"><div class="v" id="statBadges">0</div><div class="l">Badges Found</div></div>
+      <div class="stat-chip"><div class="v" id="statPct">0%</div><div class="l">Complete</div></div>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button class="nav-btn active" data-view="roll">Roll</button>
+    <button class="nav-btn" data-view="collection">Collection</button>
+    <button class="nav-btn" data-view="history">History</button>
+    <button class="nav-btn" data-view="stats">Statistics</button>
+  </nav>
+
+  <!-- ROLL VIEW -->
+  <section class="view active" id="view-roll">
+    <div class="onboard-hint" id="onboardHint" style="display:none;">
+      Roll a number from 0 to 1,000,000. Every roll gets scanned for patterns &mdash;
+      the rarer the pattern, the more it's worth. There are 233 patterns to find.
+      <button id="onboardDismiss">Got it</button>
+    </div>
+    <div class="roll-stage">
+      <div class="reel-frame" id="reelFrame">
+        <svg class="mythic-rays" id="mythicRays" viewBox="0 0 200 200" aria-hidden="true"></svg>
+        <div class="reel-row" id="reelRow"></div>
+        <div class="rating-pill" id="ratingPill"></div>
+      </div>
+      <div class="charge-track"><div class="charge-fill" id="chargeFill"></div></div>
+      <div class="status-line" id="statusLine">Ready to investigate.</div>
+      <button class="roll-btn" id="rollBtn">Roll</button>
+      <div class="roll-again-row" id="rollAgainRow" style="display:none;">
+        <button class="ghost-btn" id="viewCollectionBtn">Open collection</button>
+      </div>
+    </div>
+
+    <div class="discoveries" id="discoveries" style="display:none;">
+      <div class="discoveries-head">
+        <h3 id="discoveriesTitle">Discoveries</h3>
+        <span class="count" id="discoveriesCount"></span>
+      </div>
+      <div id="badgeList"></div>
+    </div>
+
+    <div class="near-miss" id="nearMiss" style="display:none;"></div>
+
+    <div class="summary-card" id="summaryCard" style="display:none;"></div>
+  </section>
+
+  <!-- COLLECTION VIEW -->
+  <section class="view" id="view-collection">
+    <div class="collection-toolbar">
+      <span style="font-size:13px;color:var(--text-dim);" id="collectionCount">0 / 0 discovered</span>
+      <div class="progress-track"><div class="progress-fill" id="collectionProgress" style="width:0%;"></div></div>
+    </div>
+    <div class="collection-filters">
+      <input type="text" id="collectionSearch" placeholder="Search badges&hellip;">
+      <select id="collectionTierFilter">
+        <option value="">All rarities</option>
+        <option value="common">Common</option>
+        <option value="uncommon">Uncommon</option>
+        <option value="rare">Rare</option>
+        <option value="epic">Epic</option>
+        <option value="anomaly">Anomaly</option>
+        <option value="mythic">Mythic</option>
+      </select>
+      <label class="filter-checkbox"><input type="checkbox" id="collectionFoundOnly"> Discovered only</label>
+    </div>
+    <div id="collectionBody"></div>
+  </section>
+
+  <!-- HISTORY VIEW -->
+  <section class="view" id="view-history">
+    <div id="historyBody"></div>
+  </section>
+
+  <!-- STATS VIEW -->
+  <section class="view" id="view-stats">
+    <div id="statsBody"></div>
+  </section>
+
+  <footer class="foot">
+    <button id="toggleSound">Sound: Off</button> &middot;
+    <button id="toggleMotion">Motion: Full</button> &middot;
+    <button id="exportSaveBtn">Export save</button> &middot;
+    <button id="importSaveBtn">Import save</button>
+    <input type="file" id="importSaveInput" accept="application/json" style="display:none;"> &middot;
+    <button id="toggleResearch">Research mode</button> &middot;
+    <button id="resetAllBtn">Reset progress</button>
+  </footer>
+
+  <div id="researchPanel" style="display:none;"></div>
+
+</div>
+<div class="flash-overlay" id="flashOverlay"></div>
+<div class="cutscene-stage" id="cutsceneStage">
+  <div class="cutscene-bar cutscene-bar-top"></div>
+  <div class="cutscene-bar cutscene-bar-bottom"></div>
+  <svg class="cutscene-rays" id="cutsceneRaysSvg" viewBox="0 0 400 400" aria-hidden="true"></svg>
+  <div class="cutscene-flash" id="cutsceneFlash"></div>
+  <div class="cutscene-content">
+    <div class="cutscene-eyebrow" id="cutsceneEyebrow">A number was found</div>
+    <div class="cutscene-number" id="cutsceneNumber"></div>
+    <div class="cutscene-title" id="cutsceneTitle">&#9733; MYTHIC &#9733;</div>
+    <div class="cutscene-sub" id="cutsceneSub"></div>
+  </div>
+  <div class="cutscene-skip">click to skip</div>
+</div>
+<div class="milestone-overlay" id="milestoneOverlay">
+  <div class="milestone-card">
+    <div class="milestone-eyebrow">MILESTONE</div>
+    <div class="milestone-text"></div>
+  </div>
+</div>
+<script>
+(function(){
+// ============================================================
+// NUMBER DISCOVERY ENGINE
+// Pure logic, no UI. Given a rolled number, returns every
+// badge it matches, family-adjusted EP, and overall rarity.
+// ============================================================
+
+// ---------- low level helpers ----------
+
+function digitsOf(s) { return s.split('').map(Number); }
+
+function isPrime(n) {
+  if (n < 2) return false;
+  if (n % 2 === 0) return n === 2;
+  if (n % 3 === 0) return n === 3;
+  for (let i = 5; i * i <= n; i += 6) {
+    if (n % i === 0 || n % (i + 2) === 0) return false;
+  }
+  return true;
+}
+
+function isPerfectPower(n, k) {
+  if (n <= 0) return false;
+  if (n === 1) return true; // 1^k = 1, technically true but usually excluded per-badge
+  const root = Math.round(Math.pow(n, 1 / k));
+  for (let r = Math.max(0, root - 1); r <= root + 1; r++) {
+    if (Math.pow(r, k) === n) return true;
+  }
+  return false;
+}
+
+function buildFibonacciSet(limit) {
+  const set = new Set();
+  let a = 0, b = 1;
+  while (a <= limit) { set.add(a); const next = a + b; a = b; b = next; }
+  return set;
+}
+const FIB_SET = buildFibonacciSet(1000000);
+
+function buildFactorialSet(limit) {
+  const set = new Set();
+  let f = 1, k = 0;
+  while (f <= limit) { set.add(f); k++; f *= k; }
+  return set;
+}
+const FACT_SET = buildFactorialSet(1000000);
+
+function buildPowerSet(base, limit) {
+  const set = new Set();
+  let p = 1;
+  while (p <= limit) { set.add(p); p *= base; }
+  return set;
+}
+const POW2_SET = buildPowerSet(2, 1000000);
+const POW3_SET = buildPowerSet(3, 1000000);
+const POW5_SET = buildPowerSet(5, 1000000);
+const POW7_SET = buildPowerSet(7, 1000000);
+
+function validPart(p) { return p.length === 1 || p[0] !== '0'; }
+
+function compositions(len, k) {
+  const results = [];
+  function helper(remaining, parts, current) {
+    if (parts === 1) { results.push(current.concat([remaining])); return; }
+    for (let i = 1; i <= remaining - (parts - 1); i++) {
+      helper(remaining - i, parts - 1, current.concat([i]));
+    }
+  }
+  helper(len, k, []);
+  return results;
+}
+
+function splitByLengths(s, lens) {
+  const parts = []; let idx = 0;
+  for (const l of lens) { parts.push(s.slice(idx, idx + l)); idx += l; }
+  return parts;
+}
+
+function testConsecutiveExact(s, k, scrambled) {
+  if (s.length < k) return false;
+  const comps = compositions(s.length, k);
+  for (const lens of comps) {
+    const parts = splitByLengths(s, lens);
+    if (!parts.every(validPart)) continue;
+    const nums = parts.map(Number);
+    const sorted = [...nums].sort((a, b) => a - b);
+    let isConsec = true;
+    for (let i = 1; i < sorted.length; i++) {
+      if (sorted[i] !== sorted[i - 1] + 1) { isConsec = false; break; }
+    }
+    if (!isConsec) continue;
+    const isAscendingOrder = nums.every((v, i) => i === 0 || v === nums[i - 1] + 1);
+    if (scrambled) { if (!isAscendingOrder) return true; }
+    else { if (isAscendingOrder) return true; }
+  }
+  return false;
+}
+
+function testConsecutiveContains(s, k) {
+  for (let start = 0; start < s.length; start++) {
+    for (let end = start + k; end <= s.length; end++) {
+      const sub = s.slice(start, end);
+      if (testConsecutiveExact(sub, k, false)) return true;
+    }
+  }
+  return false;
+}
+
+function testConsecutiveNearby(s, k) {
+  const subs = [];
+  for (let i = 0; i < s.length; i++) {
+    for (let j = i + 1; j <= s.length; j++) {
+      const p = s.slice(i, j);
+      if (!validPart(p)) continue;
+      subs.push({ start: i, end: j, val: Number(p) });
+    }
+  }
+  for (const a of subs) {
+    for (const b of subs) {
+      if (b.start >= a.end && b.val === a.val + 1 && b.start > a.end) return true;
+    }
+  }
+  return false;
+}
+
+function testEquation(s) {
+  const len = s.length;
+  const ops = [
+    (x, y) => x + y,
+    (x, y) => x - y,
+    (x, y) => x * y,
+    (x, y) => (y !== 0 ? x / y : null),
+  ];
+  for (let c1 = 1; c1 < len - 1; c1++) {
+    for (let c2 = c1 + 1; c2 < len; c2++) {
+      const A = s.slice(0, c1), B = s.slice(c1, c2), C = s.slice(c2);
+      if (![A, B, C].every(validPart)) continue;
+      const a = Number(A), b = Number(B), c = Number(C);
+      for (const op of ops) {
+        const r1 = op(a, b);
+        if (r1 !== null && r1 === c) return true;
+        const r2 = op(b, c);
+        if (r2 !== null && a === r2) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function testMetronome(s) {
+  for (let k = 3; k <= s.length; k++) {
+    for (const lens of compositions(s.length, k)) {
+      const parts = splitByLengths(s, lens);
+      if (!parts.every(validPart)) continue;
+      const nums = parts.map(Number);
+      const diff = nums[1] - nums[0];
+      if (diff === 0) continue;
+      let ok = true;
+      for (let i = 2; i < nums.length; i++) {
+        if (nums[i] - nums[i - 1] !== diff) { ok = false; break; }
+      }
+      if (ok) return true;
+    }
+  }
+  return false;
+}
+
+function testCrescendo(s) {
+  for (let k = 3; k <= s.length; k++) {
+    for (const lens of compositions(s.length, k)) {
+      const parts = splitByLengths(s, lens);
+      if (!parts.every(validPart)) continue;
+      const nums = parts.map(Number);
+      if (nums.some((v) => v === 0)) continue;
+      const ratio = nums[1] / nums[0];
+      if (ratio === 1) continue;
+      let ok = true;
+      for (let i = 2; i < nums.length; i++) {
+        if (Math.abs(nums[i] / nums[i - 1] - ratio) > 1e-9) { ok = false; break; }
+      }
+      if (ok) return true;
+    }
+  }
+  return false;
+}
+
+function hasSubstringRun(s, len, dir) {
+  // dir: +1 ascending, -1 descending
+  for (let i = 0; i + len <= s.length; i++) {
+    let ok = true;
+    for (let j = 1; j < len; j++) {
+      const diff = s.charCodeAt(i + j) - s.charCodeAt(i + j - 1);
+      if (diff !== dir) { ok = false; break; }
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+
+function hasSequenceOfLength(s, len) {
+  return hasSubstringRun(s, len, 1) || hasSubstringRun(s, len, -1);
+}
+
+function isSortedConsecutiveDistinct(sub) {
+  const d = digitsOf(sub);
+  const uniq = new Set(d);
+  if (uniq.size !== d.length) return false;
+  const sorted = [...d].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] !== sorted[i - 1] + 1) return false;
+  }
+  return true;
+}
+
+function diffArray(d) {
+  const out = [];
+  for (let i = 1; i < d.length; i++) out.push(d[i] - d[i - 1]);
+  return out;
+}
+
+function digitCounts(d) {
+  const counts = {};
+  for (const x of d) counts[x] = (counts[x] || 0) + 1;
+  return counts;
+}
+
+function maxRun(s) {
+  let max = 1, cur = 1;
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] === s[i - 1]) { cur++; max = Math.max(max, cur); } else cur = 1;
+  }
+  return s.length >= 1 ? max : 0;
+}
+
+function hasContiguousRun(s, len) {
+  let cur = 1;
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] === s[i - 1]) cur++; else cur = 1;
+    if (cur >= len) return true;
+  }
+  return len <= 1 && s.length >= 1;
+}
+
+function reverseStr(s) { return s.split('').reverse().join(''); }
+
+function hasPalindromicSubstring(s, minLen) {
+  for (let i = 0; i < s.length; i++) {
+    for (let j = i + minLen; j <= s.length; j++) {
+      const sub = s.slice(i, j);
+      if (sub === reverseStr(sub)) return true;
+    }
+  }
+  return false;
+}
+
+function hasRepeatedSubstring(s, minLen) {
+  const seen = new Set();
+  for (let i = 0; i + minLen <= s.length; i++) {
+    for (let len = minLen; i + len <= s.length; len++) {
+      const sub = s.slice(i, i + len);
+      const key = sub;
+      for (let k = i + len; k + len <= s.length + 1 && k + len <= s.length; k++) {
+        // handled below more simply
+      }
+    }
+  }
+  // simpler O(n^3) direct check for duplicate non-overlapping substrings length>=minLen
+  for (let len = minLen; len <= Math.floor(s.length / 2); len++) {
+    for (let i = 0; i + len <= s.length; i++) {
+      const sub = s.slice(i, i + len);
+      for (let j = i + len; j + len <= s.length; j++) {
+        if (s.slice(j, j + len) === sub) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function strobogrammaticMap() {
+  return { '0': '0', '1': '1', '6': '9', '8': '8', '9': '6' };
+}
+
+// ---------- highlight helpers ----------
+// These mirror the test logic above but return the digit *positions*
+// (0-indexed into the digit string) that a badge should draw a box
+// around, instead of just true/false.
+
+function occurrencesOf(s, ch) {
+  const idx = [];
+  for (let i = 0; i < s.length; i++) if (s[i] === ch) idx.push(i);
+  return idx;
+}
+
+function firstSubstringPositions(s, sub) {
+  const i = s.indexOf(sub);
+  if (i === -1) return null;
+  const out = [];
+  for (let k = 0; k < sub.length; k++) out.push(i + k);
+  return out;
+}
+
+function anySubstringPositions(s, subs) {
+  for (const sub of subs) {
+    const p = firstSubstringPositions(s, sub);
+    if (p) return p;
+  }
+  return null;
+}
+
+function suffixPositions(s, len) {
+  if (s.length < len) return null;
+  const out = [];
+  for (let i = s.length - len; i < s.length; i++) out.push(i);
+  return out;
+}
+
+function maximalRunAt(s, minLen) {
+  let i = 0;
+  while (i < s.length) {
+    let j = i;
+    while (j + 1 < s.length && s[j + 1] === s[i]) j++;
+    const runLen = j - i + 1;
+    if (runLen >= minLen) {
+      const out = [];
+      for (let k = i; k <= j; k++) out.push(k);
+      return out;
+    }
+    i = j + 1;
+  }
+  return null;
+}
+
+function positionsForDigitFreqAtLeast(d, k) {
+  const counts = {};
+  d.forEach((v, i) => { (counts[v] = counts[v] || []).push(i); });
+  let best = null;
+  Object.keys(counts).forEach((val) => {
+    if (counts[val].length >= k && (!best || counts[val].length > best.length)) best = counts[val];
+  });
+  return best;
+}
+
+function positionsForMultiPairs(d, pairsNeeded) {
+  const counts = {};
+  d.forEach((v, i) => { (counts[v] = counts[v] || []).push(i); });
+  const pairDigits = Object.keys(counts).filter((k) => counts[k].length >= 2);
+  if (pairDigits.length < pairsNeeded) return null;
+  let positions = [];
+  pairDigits.slice(0, pairsNeeded).forEach((k) => { positions = positions.concat(counts[k]); });
+  return positions;
+}
+
+function sequenceRunPositions(s, len) {
+  for (const dir of [1, -1]) {
+    for (let i = 0; i + len <= s.length; i++) {
+      let ok = true;
+      for (let j = 1; j < len; j++) {
+        if (s.charCodeAt(i + j) - s.charCodeAt(i + j - 1) !== dir) { ok = false; break; }
+      }
+      if (ok) { const out = []; for (let k = 0; k < len; k++) out.push(i + k); return out; }
+    }
+  }
+  return null;
+}
+
+function hopPositions(d, times) {
+  const n = d.length;
+  for (let start = 0; start < 2; start++) {
+    for (let val = 0; val <= 9; val++) {
+      const idx = [];
+      for (let i = start; i < n; i += 2) { if (d[i] === val) idx.push(i); else break; }
+      if (idx.length >= times) return idx;
+    }
+  }
+  return null;
+}
+
+function palindromicSubstringPositions(s, minLen) {
+  for (let len = s.length; len >= minLen; len--) {
+    for (let i = 0; i + len <= s.length; i++) {
+      const sub = s.slice(i, i + len);
+      if (sub === reverseStr(sub)) {
+        const out = []; for (let k = 0; k < len; k++) out.push(i + k); return out;
+      }
+    }
+  }
+  return null;
+}
+
+function neighborPositions(s, d) {
+  const set = new Set(d);
+  for (const v of set) {
+    if (set.has(v + 1)) {
+      const a = d.indexOf(v), b = d.indexOf(v + 1);
+      return [a, b];
+    }
+  }
+  return null;
+}
+
+window.Engine = { digitsOf, isPrime, isPerfectPower, FIB_SET, FACT_SET, POW2_SET, POW3_SET, POW5_SET, POW7_SET, testConsecutiveExact, testConsecutiveContains, testConsecutiveNearby, testEquation, testMetronome, testCrescendo, hasSequenceOfLength, hasSubstringRun, isSortedConsecutiveDistinct, diffArray, digitCounts, maxRun, hasContiguousRun, reverseStr, hasPalindromicSubstring, hasRepeatedSubstring, strobogrammaticMap, validPart, compositions, splitByLengths, occurrencesOf, firstSubstringPositions, anySubstringPositions, suffixPositions, maximalRunAt, positionsForDigitFreqAtLeast, positionsForMultiPairs, sequenceRunPositions, hopPositions, palindromicSubstringPositions, neighborPositions };
+
+})();
+
+(function(){
+const H = window.Engine;
+
+// Rarity tiers, in ascending order of value.
+const TIER = {
+  COMMON: { key: 'common', label: 'Common', order: 0, color: '#8B93A3', epRange: [5, 15] },
+  UNCOMMON: { key: 'uncommon', label: 'Uncommon', order: 1, color: '#4FD1C5', epRange: [20, 55] },
+  RARE: { key: 'rare', label: 'Rare', order: 2, color: '#5B8DEF', epRange: [90, 260] },
+  EPIC: { key: 'epic', label: 'Epic', order: 3, color: '#B565D9', epRange: [320, 900] },
+  ANOMALY: { key: 'anomaly', label: 'Anomaly', order: 4, color: '#FF6B6B', epRange: [1300, 3600] },
+  MYTHIC: { key: 'mythic', label: 'Mythic', order: 5, color: '#FFD166', epRange: [5000, 25000] },
+};
+
+let _seedCounter = 1;
+function epIn(tier) {
+  // deterministic-ish spread within the tier range using a rotating seed,
+  // so identical badges always score identically (important for stats/history).
+  const [lo, hi] = tier.epRange;
+  _seedCounter = (_seedCounter * 9301 + 49297) % 233280;
+  const frac = _seedCounter / 233280;
+  return Math.round(lo + frac * (hi - lo));
+}
+
+const BADGES = [];
+const byId = {};
+
+function mk(id, name, desc, category, tier, test, opts) {
+  opts = opts || {};
+  const badge = {
+    id, name, desc, category,
+    tier: tier.key, tierLabel: tier.label, tierOrder: tier.order, color: tier.color,
+    ep: opts.ep !== undefined ? opts.ep : epIn(tier),
+    test,
+    // highlight(ctx) returns an array of 0-indexed digit positions to box in
+    // green, or null/undefined to fall back to boxing the whole number.
+    highlight: opts.highlight || null,
+    family: opts.family || null,
+  };
+  BADGES.push(badge);
+  byId[id] = badge;
+  return badge;
+}
+function contains(sub) { return (c) => H.firstSubstringPositions(c.s, sub); }
+function containsAny(subs) { return (c) => H.anySubstringPositions(c.s, subs); }
+function endsWithLen(len) { return (c) => H.suffixPositions(c.s, len); }
+function run(minLen) { return (c) => H.maximalRunAt(c.s, minLen); }
+function kind(k) { return (c) => H.positionsForDigitFreqAtLeast(c.d, k); }
+function pairsOf(k) { return (c) => H.positionsForMultiPairs(c.d, k); }
+function seqRun(len) { return (c) => H.sequenceRunPositions(c.s, len); }
+const HL_FIRST_LAST = (c) => [0, c.s.length - 1];
+const HL_FIRST2_LAST2 = (c) => c.s.length >= 4 ? [0, 1, c.s.length - 2, c.s.length - 1] : null;
+const HL_LAST = (c) => [c.s.length - 1];
+
+// ctx passed to every test(): { n, s, d } where s = digit string, d = digit array (numbers)
+
+// ============================================================
+// EXACT / MEME / SPECIAL NUMBERS
+// ============================================================
+const CAT_EXACT = 'Exact & Special Numbers';
+mk('exact-nice', 'Exact Nice', 'Exactly "69".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '69', { family: 'nice' });
+mk('exact-jackpot', 'Exact Jackpot', 'Exactly "777".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '777', { family: 'jackpotfamily' });
+mk('jackpot-six', 'Jackpot Six', 'Contains six 7s in a row.', CAT_EXACT, TIER.MYTHIC, (c) => c.s.includes('777777'), { family: 'jackpotfamily' });
+mk('jackpot-five', 'Jackpot Five', 'Contains five 7s in a row.', CAT_EXACT, TIER.RARE, (c) => c.s.includes('77777'), { family: 'jackpotfamily', highlight: contains('77777') });
+mk('jackpot-four', 'Jackpot Four', 'Contains four 7s in a row.', CAT_EXACT, TIER.UNCOMMON, (c) => c.s.includes('7777'), { family: 'jackpotfamily', highlight: contains('7777') });
+mk('exact-botanist', 'Exact Botanist', 'Exactly "420".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '420', { family: 'botanist' });
+mk('exact-devil', 'Exact Devil', 'Exactly "666".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '666', { family: 'devil' });
+mk('exact-leet', 'Exact Leet', 'Exactly "1337".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '1337', { family: 'leet' });
+mk('exact-hell', 'Exact Hell', 'Exactly "7734".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '7734', { family: 'hell' });
+mk('exact-80085', 'Exact 80085', 'Exactly "80085".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '80085', { family: 'boobfamily' });
+mk('exact-meaning', 'Exact Meaning', 'Exactly "42".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '42', { family: 'meaning' });
+mk('exact-emergency', 'Exact Emergency', 'Exactly "911".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '911', { family: 'emergency' });
+mk('very-very-nice', 'Very Very Nice', 'Exactly "696969".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '696969');
+mk('hotbox', 'Hotbox', 'Exactly "420420".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '420420');
+mk('mayday', 'Mayday', 'Exactly "911911".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '911911');
+mk('universal-answer', 'Universal Answer', 'Exactly "424242".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '424242');
+mk('orwellian', 'Orwellian', 'Exactly "1984".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '1984', { family: 'bigbrother' });
+mk('zero', 'Zero', 'The number zero.', CAT_EXACT, TIER.RARE, (c) => c.n === 0);
+mk('one', 'One', 'The number one.', CAT_EXACT, TIER.RARE, (c) => c.n === 1);
+mk('two', 'Two', 'The number two.', CAT_EXACT, TIER.RARE, (c) => c.n === 2);
+mk('three', 'Three', 'The number three.', CAT_EXACT, TIER.RARE, (c) => c.n === 3);
+mk('four', 'Four', 'The number four.', CAT_EXACT, TIER.RARE, (c) => c.n === 4);
+mk('five', 'Five', 'The number five.', CAT_EXACT, TIER.RARE, (c) => c.n === 5);
+mk('six', 'Six', 'The number six.', CAT_EXACT, TIER.RARE, (c) => c.n === 6);
+mk('seven', 'Seven', 'The number seven.', CAT_EXACT, TIER.RARE, (c) => c.n === 7);
+mk('eight', 'Eight', 'The number eight.', CAT_EXACT, TIER.RARE, (c) => c.n === 8);
+mk('nine', 'Nine', 'The number nine.', CAT_EXACT, TIER.RARE, (c) => c.n === 9);
+mk('exact-six-seven', 'Exact Six-Seven', 'Exactly "67".', CAT_EXACT, TIER.EPIC, (c) => c.s === '67', { family: 'sixseven' });
+mk('exact-eighty-six', 'Exact Eighty-Six', 'Exactly "86".', CAT_EXACT, TIER.EPIC, (c) => c.s === '86', { family: 'eightysix' });
+mk('exact-orientation', 'Exact Orientation', 'Exactly "101".', CAT_EXACT, TIER.EPIC, (c) => c.s === '101', { family: 'orientation' });
+mk('exact-calendar', 'Exact Calendar', 'Exactly "365".', CAT_EXACT, TIER.EPIC, (c) => c.s === '365', { family: 'calendar' });
+mk('brainrot', 'Brainrot', 'Exactly "676767".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '676767');
+mk('groundhog-day', 'Groundhog Day', 'Exactly "365365".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '365365');
+mk('one-million', 'One Million', 'The number one million.', CAT_EXACT, TIER.MYTHIC, (c) => c.n === 1000000);
+mk('not-found', 'Not Found', 'Exactly "404".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '404', { family: 'error404' });
+mk('full-day', 'Full Day', 'Exactly "86400", the number of seconds in a day.', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '86400');
+mk('17776', '17776', 'Exactly "17776".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '17776');
+mk('infernal', 'Infernal', 'Exactly "666666".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '666666');
+mk('always', 'Always', 'Exactly "247365" or "365247" (24/7, 365).', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '247365' || c.s === '365247');
+mk('funny-number', 'Funny Number', 'Exactly "69420" or "42069".', CAT_EXACT, TIER.MYTHIC, (c) => c.s === '69420' || c.s === '42069');
+mk('exact-boob', 'Exact Boob', 'Exactly "8008" or "58008".', CAT_EXACT, TIER.ANOMALY, (c) => c.s === '8008' || c.s === '58008', { family: 'boobfamily' });
+mk('boob-8008', 'Boob 8008', 'Contains "8008" (spells BOOB upside-down).', CAT_EXACT, TIER.UNCOMMON, (c) => c.s.includes('8008'), { family: 'boobfamily', highlight: contains('8008') });
+mk('boob-58008', 'Boob 58008', 'Contains "58008" (spells BOOBS upside-down).', CAT_EXACT, TIER.RARE, (c) => c.s.includes('58008'), { family: 'boobfamily', highlight: contains('58008') });
+mk('boob-80085', 'Boob 80085', 'Contains "80085" (spells BOOBS).', CAT_EXACT, TIER.RARE, (c) => c.s.includes('80085'), { family: 'boobfamily', highlight: contains('80085') });
+
+// ============================================================
+// POWERS, CONSTANTS & MATHEMATICS
+// ============================================================
+const CAT_MATH = 'Powers, Constants & Mathematics';
+mk('power-13', '13th Power', 'A perfect thirteenth power (n\u00b9\u00b3).', CAT_MATH, TIER.MYTHIC, (c) => H.isPerfectPower(c.n, 13) && c.n > 1, { family: 'power' });
+mk('power-17', '17th Power', 'A perfect seventeenth power (n\u00b9\u2077).', CAT_MATH, TIER.MYTHIC, (c) => H.isPerfectPower(c.n, 17) && c.n > 1, { family: 'power' });
+mk('power-19', '19th Power', 'A perfect nineteenth power (n\u00b9\u2079).', CAT_MATH, TIER.MYTHIC, (c) => H.isPerfectPower(c.n, 19) && c.n > 1, { family: 'power' });
+mk('tau', 'Tau', 'Exactly \u03c4 (6283, 62831, or 628318).', CAT_MATH, TIER.MYTHIC, (c) => ['6283', '62831', '628318'].includes(c.s));
+mk('golden-ratio', 'Golden Ratio', 'Exactly \u03c6 (1618, 16180, or 161803).', CAT_MATH, TIER.MYTHIC, (c) => ['1618', '16180', '161803'].includes(c.s), { family: 'phi' });
+mk('power-10', '10th Power', 'A perfect tenth power (n\u00b9\u2070).', CAT_MATH, TIER.EPIC, (c) => H.isPerfectPower(c.n, 10) && c.n > 1, { family: 'power' });
+mk('power-11', '11th Power', 'A perfect eleventh power (n\u00b9\u00b9).', CAT_MATH, TIER.EPIC, (c) => H.isPerfectPower(c.n, 11) && c.n > 1, { family: 'power' });
+mk('pi', 'Pi', 'Exactly \u03c0 (314, 3141, 31415, or 314159).', CAT_MATH, TIER.MYTHIC, (c) => ['314', '3141', '31415', '314159'].includes(c.s));
+mk('eulers-number', "Euler's Number", 'The number e (271, 2718, 27182, or 271828).', CAT_MATH, TIER.MYTHIC, (c) => ['271', '2718', '27182', '271828'].includes(c.s));
+mk('power-9', '9th Power', 'A perfect ninth power (n\u2079).', CAT_MATH, TIER.EPIC, (c) => H.isPerfectPower(c.n, 9) && c.n > 1, { family: 'power' });
+mk('power-8', '8th Power', 'A perfect eighth power (n\u2078).', CAT_MATH, TIER.EPIC, (c) => H.isPerfectPower(c.n, 8) && c.n > 1, { family: 'power' });
+mk('ouroboros', 'Ouroboros', 'A number raised to itself: n\u207f (1\u00b9, 2\u00b2, \u2026 7\u2077).', CAT_MATH, TIER.MYTHIC, (c) => [1, 4, 27, 256, 3125, 46656, 823543].includes(c.n));
+mk('power-7', '7th Power', 'A perfect seventh power (n\u2077).', CAT_MATH, TIER.EPIC, (c) => H.isPerfectPower(c.n, 7) && c.n > 1, { family: 'power' });
+mk('power-of-seven', 'Power of Seven', 'A power of 7 (7\u207f).', CAT_MATH, TIER.RARE, (c) => H.POW7_SET.has(c.n) && c.n > 1, { family: 'pow7' });
+mk('factorial', 'Factorial', 'A factorial number (n!).', CAT_MATH, TIER.EPIC, (c) => H.FACT_SET.has(c.n) && c.n > 2);
+mk('power-of-five', 'Power of Five', 'A power of 5 (5\u207f).', CAT_MATH, TIER.RARE, (c) => H.POW5_SET.has(c.n) && c.n > 1, { family: 'pow5' });
+mk('power-6', '6th Power', 'A perfect sixth power (n\u2076).', CAT_MATH, TIER.RARE, (c) => H.isPerfectPower(c.n, 6) && c.n > 1, { family: 'power' });
+mk('power-of-three', 'Power of Three', 'A power of 3 (3\u207f).', CAT_MATH, TIER.UNCOMMON, (c) => H.POW3_SET.has(c.n) && c.n > 1, { family: 'pow3' });
+mk('power-5', '5th Power', 'A perfect fifth power (n\u2075).', CAT_MATH, TIER.RARE, (c) => H.isPerfectPower(c.n, 5) && c.n > 1, { family: 'power' });
+mk('power-of-two', 'Power of Two', 'A power of 2 (2\u207f).', CAT_MATH, TIER.UNCOMMON, (c) => H.POW2_SET.has(c.n) && c.n > 1, { family: 'pow2' });
+mk('fibonacci', 'Fibonacci Number', 'Part of the golden ratio sequence found in nature.', CAT_MATH, TIER.RARE, (c) => H.FIB_SET.has(c.n));
+mk('power-4', '4th Power', 'A perfect fourth power (n\u2074).', CAT_MATH, TIER.UNCOMMON, (c) => H.isPerfectPower(c.n, 4) && c.n > 1, { family: 'power' });
+mk('power-3', '3rd Power', 'A perfect cube (n\u00b3).', CAT_MATH, TIER.UNCOMMON, (c) => H.isPerfectPower(c.n, 3) && c.n > 1, { family: 'power' });
+mk('pronic', 'Pronic Number', 'The product of two consecutive integers (n \u00d7 n+1).', CAT_MATH, TIER.UNCOMMON, (c) => { for (let k = 0; k * (k + 1) <= c.n; k++) if (k * (k + 1) === c.n) return true; return false; });
+mk('power-2', '2nd Power', 'A perfect square (n\u00b2).', CAT_MATH, TIER.COMMON, (c) => H.isPerfectPower(c.n, 2) && c.n > 1, { family: 'power' });
+mk('prime', 'Prime Number', 'Divisible only by 1 and itself.', CAT_MATH, TIER.UNCOMMON, (c) => H.isPrime(c.n));
+mk('dozen', 'Dozen', 'Divisible by 12.', CAT_MATH, TIER.COMMON, (c) => c.n > 0 && c.n % 12 === 0);
+mk('eleven', 'Eleven', 'Divisible by 11.', CAT_MATH, TIER.COMMON, (c) => c.n > 0 && c.n % 11 === 0);
+mk('harshad', 'Harshad Number', 'Divisible by the sum of its own digits.', CAT_MATH, TIER.COMMON, (c) => { const sum = c.d.reduce((a, b) => a + b, 0); return sum > 0 && c.n % sum === 0; });
+mk('lucky-seven-div', 'Lucky Seven (Divisible)', 'Divisible by 7.', CAT_MATH, TIER.COMMON, (c) => c.n > 0 && c.n % 7 === 0);
+mk('div-by-three', 'Divisible by Three', 'Every digit is divisible by 3.', CAT_MATH, TIER.UNCOMMON, (c) => c.d.every((x) => x % 3 === 0));
+mk('spy-number', 'Spy Number', 'The sum of its digits equals the product of its digits.', CAT_MATH, TIER.RARE, (c) => { const sum = c.d.reduce((a, b) => a + b, 0); const prod = c.d.reduce((a, b) => a * b, 1); return sum === prod; });
+mk('equation', 'Equation', 'Insert one of + \u2212 \u00d7 \u00f7 and an equals sign to make a true equation.', CAT_MATH, TIER.RARE, (c) => H.testEquation(c.s));
+mk('metronome', 'Metronome', 'Splits into three or more numbers with a constant difference.', CAT_MATH, TIER.EPIC, (c) => H.testMetronome(c.s));
+mk('crescendo', 'Crescendo', 'Splits into three or more numbers with a constant ratio.', CAT_MATH, TIER.EPIC, (c) => H.testCrescendo(c.s));
+
+// ============================================================
+// DIGIT PATTERNS & SEQUENCES
+// ============================================================
+const CAT_SEQ = 'Digit Patterns & Sequences';
+mk('sequence-6', 'Sequence (6)', 'Contains a sequence of 6 consecutive digits.', CAT_SEQ, TIER.MYTHIC, (c) => H.hasSequenceOfLength(c.s, 6), { family: 'sequence', highlight: seqRun(6) });
+mk('cascade', 'Cascade', 'Every digit increases by exactly 1 from the previous.', CAT_SEQ, TIER.EPIC, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x === 1));
+mk('waterfall', 'Waterfall', 'Every digit decreases by exactly 1 from the previous.', CAT_SEQ, TIER.EPIC, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x === -1));
+mk('four-consec-contains-seq', '4 Consecutive Numbers (Contains)', 'Contains four adjacent consecutive integers.', CAT_SEQ, TIER.RARE, (c) => H.testConsecutiveContains(c.s, 4), { family: 'consec4contains' });
+mk('four-consec-scrambled', '4 Consecutive Numbers (Scrambled)', 'The entire number splits into four consecutive integers, but not in order.', CAT_SEQ, TIER.EPIC, (c) => H.testConsecutiveExact(c.s, 4, true));
+mk('homogeneous', 'Homogeneous', 'All digits are the same.', CAT_SEQ, TIER.EPIC, (c) => c.d.every((x) => x === c.d[0]) && c.d.length >= 2);
+mk('binary-soul', 'Binary Soul', 'Only 0s and 1s.', CAT_SEQ, TIER.RARE, (c) => c.d.every((x) => x === 0 || x === 1));
+mk('straight-flush', 'Straight Flush', 'Contains 5 consecutive same-parity digits (02468, 13579, or their reverse).', CAT_SEQ, TIER.MYTHIC, (c) => ['02468', '86420', '13579', '97531'].some((p) => c.s.includes(p)), { highlight: containsAny(['02468', '86420', '13579', '97531']) });
+mk('straight', 'Straight', 'Contains a sequence of 5 consecutive digits (ascending or descending).', CAT_SEQ, TIER.EPIC, (c) => H.hasSequenceOfLength(c.s, 5), { family: 'sequence', highlight: seqRun(5) });
+mk('sequence-4', 'Sequence (4)', 'Contains a sequence of 4 consecutive digits.', CAT_SEQ, TIER.RARE, (c) => H.hasSequenceOfLength(c.s, 4), { family: 'sequence', highlight: seqRun(4) });
+mk('sequence-3', 'Sequence (3)', 'Contains a sequence of 3 consecutive digits.', CAT_SEQ, TIER.UNCOMMON, (c) => H.hasSequenceOfLength(c.s, 3), { family: 'sequence', highlight: seqRun(3) });
+mk('zipper', 'Zipper', 'Two digits alternating perfectly.', CAT_SEQ, TIER.RARE, (c) => { if (c.d.length < 4) return false; const a = c.d[0], b = c.d[1]; if (a === b) return false; for (let i = 0; i < c.d.length; i++) if (c.d[i] !== (i % 2 === 0 ? a : b)) return false; return true; });
+mk('ascension', 'Ascension', 'Every digit is strictly larger than the previous.', CAT_SEQ, TIER.RARE, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x > 0), { family: 'ascdesc' });
+mk('decay', 'Decay', 'Every digit is strictly smaller than the previous.', CAT_SEQ, TIER.RARE, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x < 0), { family: 'ascdesc' });
+mk('steps', 'Steps', 'Digits never decrease.', CAT_SEQ, TIER.UNCOMMON, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x >= 0), { family: 'stepsslopes' });
+mk('slopes', 'Slopes', 'Digits never increase.', CAT_SEQ, TIER.UNCOMMON, (c) => c.d.length >= 2 && H.diffArray(c.d).every((x) => x <= 0), { family: 'stepsslopes' });
+mk('mesa', 'Mesa', 'Digits rise to a peak, then fall (flat stretches allowed).', CAT_SEQ, TIER.UNCOMMON, (c) => isMesaCanyon(c.d, 'mesa'));
+mk('canyon', 'Canyon', 'Digits fall to a floor, then rise (flat stretches allowed).', CAT_SEQ, TIER.UNCOMMON, (c) => isMesaCanyon(c.d, 'canyon'));
+mk('dunes', 'Dunes', 'Rises and falls keep alternating (flat stretches allowed).', CAT_SEQ, TIER.RARE, (c) => isDunes(c.d));
+mk('turtle', 'Turtle', 'All consecutive digits differ by at most 1.', CAT_SEQ, TIER.COMMON, (c) => c.d.length < 2 || H.diffArray(c.d).every((x) => Math.abs(x) <= 1));
+mk('even-spacing', 'Even Spacing', 'All digits are evenly spaced in an arithmetic sequence.', CAT_SEQ, TIER.RARE, (c) => { if (c.d.length < 3) return false; const diffs = H.diffArray(c.d); return diffs.every((x) => x === diffs[0]) && diffs[0] !== 0; }, { family: 'evenspacing' });
+mk('even-spacing-abs', 'Even Spacing (Absolute)', 'All digits have the same absolute spacing (e.g., \u00b12 each time).', CAT_SEQ, TIER.UNCOMMON, (c) => { if (c.d.length < 3) return false; const diffs = H.diffArray(c.d).map(Math.abs); return diffs.every((x) => x === diffs[0]) && diffs[0] !== 0; }, { family: 'evenspacing' });
+mk('scramble', 'Scramble', 'All digits form a consecutive sequence when sorted.', CAT_SEQ, TIER.RARE, (c) => c.d.length >= 3 && H.isSortedConsecutiveDistinct(c.s), { family: 'scramble' });
+mk('mini-scramble', 'Mini Scramble', 'Contains 3 or more adjacent digits that form a run when sorted.', CAT_SEQ, TIER.UNCOMMON, (c) => { for (let len = 3; len <= c.s.length; len++) for (let i = 0; i + len <= c.s.length; i++) if (H.isSortedConsecutiveDistinct(c.s.slice(i, i + len))) return true; return false; }, { family: 'scramble' });
+mk('alternator', 'Alternator', 'Digits strictly alternate between even and odd.', CAT_SEQ, TIER.RARE, (c) => c.d.length >= 2 && c.d.every((x, i) => i === 0 || (x % 2) !== (c.d[i - 1] % 2)));
+mk('flush', 'Flush', 'All digits are either all even or all odd.', CAT_SEQ, TIER.UNCOMMON, (c) => c.d.every((x) => x % 2 === 0) || c.d.every((x) => x % 2 === 1));
+mk('hills', 'Hills', 'Digits strictly alternate between rising and falling.', CAT_SEQ, TIER.RARE, (c) => isZigzag(c.d));
+mk('mountain', 'Mountain', 'Digits ascend to a peak and then descend.', CAT_SEQ, TIER.UNCOMMON, (c) => isStrictPeak(c.d, 'mountain'));
+mk('valley', 'Valley', 'Digits descend to a trough and then ascend.', CAT_SEQ, TIER.UNCOMMON, (c) => isStrictPeak(c.d, 'valley'));
+mk('double-hop', 'Double Hop', 'A digit appears at every other position (3 times).', CAT_SEQ, TIER.RARE, (c) => hasHop(c.d, 3), { family: 'hop', highlight: (c) => H.hopPositions(c.d, 3) });
+mk('hopscotch', 'Hopscotch', 'A digit appears at every other position (2 times).', CAT_SEQ, TIER.COMMON, (c) => hasHop(c.d, 2), { family: 'hop', highlight: (c) => H.hopPositions(c.d, 2) });
+
+function isMesaCanyon(d, mode) {
+  if (d.length < 3) return false;
+  let i = 0;
+  const n = d.length;
+  const up = () => { let moved = false; while (i + 1 < n && (mode === 'mesa' ? d[i + 1] >= d[i] : d[i + 1] <= d[i])) { i++; moved = true; } return moved; };
+  const down = () => { let moved = false; while (i + 1 < n && (mode === 'mesa' ? d[i + 1] <= d[i] : d[i + 1] >= d[i])) { i++; moved = true; } return moved; };
+  const startI = i;
+  up();
+  const peakReached = i > startI;
+  down();
+  return i === n - 1 && peakReached && d.some((v, idx) => idx > 0 && ((mode === 'mesa' && v < d[idx - 1]) || (mode === 'canyon' && v > d[idx - 1])));
+}
+function isDunes(d) {
+  if (d.length < 4) return false;
+  const diffs = H.diffArray(d).filter((x) => x !== 0);
+  if (diffs.length < 3) return false;
+  let turns = 0;
+  for (let i = 1; i < diffs.length; i++) if ((diffs[i] > 0) !== (diffs[i - 1] > 0)) turns++;
+  return turns >= 2;
+}
+function isZigzag(d) {
+  if (d.length < 3) return false;
+  const diffs = H.diffArray(d);
+  if (diffs.some((x) => x === 0)) return false;
+  for (let i = 1; i < diffs.length; i++) if ((diffs[i] > 0) === (diffs[i - 1] > 0)) return false;
+  return true;
+}
+function isStrictPeak(d, mode) {
+  if (d.length < 3) return false;
+  let i = 0; const n = d.length;
+  if (mode === 'mountain') {
+    while (i + 1 < n && d[i + 1] > d[i]) i++;
+    const peak = i;
+    if (peak === 0 || peak === n - 1) return false;
+    while (i + 1 < n && d[i + 1] < d[i]) i++;
+    return i === n - 1;
+  } else {
+    while (i + 1 < n && d[i + 1] < d[i]) i++;
+    const trough = i;
+    if (trough === 0 || trough === n - 1) return false;
+    while (i + 1 < n && d[i + 1] > d[i]) i++;
+    return i === n - 1;
+  }
+}
+function hasHop(d, times) {
+  const n = d.length;
+  if (n < 1 + (times - 1) * 2) return false;
+  for (let start = 0; start < 2; start++) {
+    for (let val = 0; val <= 9; val++) {
+      let count = 0;
+      for (let i = start; i < n; i += 2) if (d[i] === val) count++; else break;
+      if (count >= times) return true;
+    }
+  }
+  return false;
+}
+
+// ============================================================
+// REPETITION / MATCHING DIGITS
+// ============================================================
+const CAT_REP = 'Repetition & Matching Digits';
+mk('contig-sixes', 'Contiguous Sixes', 'Six identical consecutive digits.', CAT_REP, TIER.MYTHIC, (c) => H.hasContiguousRun(c.s, 6), { family: 'contigrun', highlight: run(6) });
+mk('contig-fives', 'Contiguous Fives', 'Five identical consecutive digits.', CAT_REP, TIER.ANOMALY, (c) => H.hasContiguousRun(c.s, 5), { family: 'contigrun', highlight: run(5) });
+mk('contig-quads', 'Contiguous Quads', 'Four identical consecutive digits.', CAT_REP, TIER.EPIC, (c) => H.hasContiguousRun(c.s, 4), { family: 'contigrun', highlight: run(4) });
+mk('contig-trips', 'Contiguous Trips', 'Three identical consecutive digits.', CAT_REP, TIER.RARE, (c) => H.hasContiguousRun(c.s, 3), { family: 'contigrun', highlight: run(3) });
+mk('contig-pair', 'Contiguous Pair', 'Contains a contiguous pair of matching digits.', CAT_REP, TIER.COMMON, (c) => H.hasContiguousRun(c.s, 2), { family: 'contigrun', highlight: run(2) });
+mk('five-of-a-kind', 'Five of a Kind', 'Contains five identical digits.', CAT_REP, TIER.ANOMALY, (c) => Object.values(H.digitCounts(c.d)).some((x) => x >= 5), { family: 'kind', highlight: kind(5) });
+mk('four-of-a-kind', 'Four of a Kind', 'Contains four identical digits.', CAT_REP, TIER.EPIC, (c) => Object.values(H.digitCounts(c.d)).some((x) => x >= 4), { family: 'kind', highlight: kind(4) });
+mk('three-of-a-kind', 'Three of a Kind', 'Contains three identical digits.', CAT_REP, TIER.RARE, (c) => Object.values(H.digitCounts(c.d)).some((x) => x >= 3), { family: 'kind', highlight: kind(3) });
+mk('pair', 'Pair', 'Contains a pair of matching digits.', CAT_REP, TIER.COMMON, (c) => Object.values(H.digitCounts(c.d)).some((x) => x >= 2), { family: 'kind', highlight: kind(2) });
+mk('two-pair', 'Two Pair', 'Contains two distinct pairs of matching digits.', CAT_REP, TIER.UNCOMMON, (c) => Object.values(H.digitCounts(c.d)).filter((x) => x >= 2).length >= 2, { family: 'kind', highlight: pairsOf(2) });
+mk('three-pair', 'Three Pair', 'Contains three distinct pairs of matching digits.', CAT_REP, TIER.RARE, (c) => Object.values(H.digitCounts(c.d)).filter((x) => x >= 2).length >= 3, { family: 'kind', highlight: pairsOf(3) });
+mk('contig-two-pair', 'Contiguous Two Pair', 'Contains two adjacent contiguous pairs.', CAT_REP, TIER.RARE, (c) => hasContigPairsCount(c.s, 2), { highlight: (c) => contigPairsPositions(c.s, 2) });
+mk('contig-three-pair', 'Contiguous Three Pair', 'Contains three adjacent contiguous pairs.', CAT_REP, TIER.EPIC, (c) => hasContigPairsCount(c.s, 3), { highlight: (c) => contigPairsPositions(c.s, 3) });
+mk('framed-pair', 'Framed Pair', 'A 4-digit number where the middle two digits match each other but differ from both end digits.', CAT_REP, TIER.UNCOMMON, (c) => c.s.length === 4 && c.s[1] === c.s[2] && c.s[0] !== c.s[1] && c.s[3] !== c.s[1], { highlight: (c) => [1, 2] });
+mk('framed-triple', 'Framed Triple', 'A triple in the middle, bookended by different digits.', CAT_REP, TIER.RARE, (c) => c.s.length === 5 && c.s[1] === c.s[2] && c.s[2] === c.s[3] && c.s[0] !== c.s[1] && c.s[4] !== c.s[1], { highlight: (c) => [1, 2, 3] });
+mk('framed-quad', 'Framed Quad', 'Four of a kind in the middle, bookended by different digits.', CAT_REP, TIER.EPIC, (c) => c.s.length === 6 && c.s[1] === c.s[2] && c.s[2] === c.s[3] && c.s[3] === c.s[4] && c.s[0] !== c.s[1] && c.s[5] !== c.s[1], { highlight: (c) => [1, 2, 3, 4] });
+mk('framed-double', 'Framed Double', 'Two pairs in the middle, bookended by different digits.', CAT_REP, TIER.RARE, (c) => c.s.length === 6 && c.s[1] === c.s[2] && c.s[3] === c.s[4] && c.s[0] !== c.s[1] && c.s[5] !== c.s[4], { highlight: (c) => [1, 2, 3, 4] });
+mk('echo', 'Echo', 'The first half repeats as the second half.', CAT_REP, TIER.RARE, (c) => c.s.length % 2 === 0 && c.s.length >= 2 && c.s.slice(0, c.s.length / 2) === c.s.slice(c.s.length / 2));
+mk('mini-echo', 'Mini Echo', 'Contains an adjacent 2-digit repeat.', CAT_REP, TIER.UNCOMMON, (c) => /(\d\d)\1/.test(c.s), { highlight: (c) => { const m = /(\d\d)\1/.exec(c.s); if (!m) return null; const i = m.index; return [i, i + 1, i + 2, i + 3]; } });
+mk('rhyme', 'Rhyme', 'Contains the same 2+ digit substring twice.', CAT_REP, TIER.UNCOMMON, (c) => H.hasRepeatedSubstring(c.s, 2), { highlight: (c) => rhymePositions(c.s) });
+mk('firefly', 'Firefly', 'One unique digit among identical others.', CAT_REP, TIER.RARE, (c) => { if (c.d.length < 3) return false; const counts = H.digitCounts(c.d); const vals = Object.values(counts); return Object.keys(counts).length === 2 && vals.includes(1) && vals.includes(c.d.length - 1); }, { highlight: (c) => { const counts = H.digitCounts(c.d); const uniqueVal = Object.keys(counts).find((k) => counts[k] === 1); return uniqueVal !== undefined ? [c.d.indexOf(Number(uniqueVal))] : null; } });
+mk('full-house', 'Full House', 'Contains a set of three and a set of two.', CAT_REP, TIER.EPIC, (c) => { const vals = Object.values(H.digitCounts(c.d)); return vals.some((x) => x >= 3) && vals.filter((x) => x >= 2).length >= 2; }, { highlight: (c) => fullHousePositions(c.d) });
+mk('contig-full-house', 'Contiguous Full House', 'Contains a contiguous set of three adjacent to a contiguous set of two.', CAT_REP, TIER.EPIC, (c) => /(\d)\1\1(\d)\2(?!\2)/.test(c.s) || /(\d)\1(?!\1)(\d)\2\2/.test(c.s));
+mk('snake-eyes', 'Snake Eyes', 'Contains a single pair of ones and no other pairs.', CAT_REP, TIER.UNCOMMON, (c) => { const counts = H.digitCounts(c.d); return counts[1] === 2 && Object.entries(counts).every(([k, v]) => k === '1' || v < 2); }, { highlight: (c) => H.occurrencesOf(c.s, '1') });
+
+function hasContigPairsCount(s, count) {
+  for (let i = 0; i + count * 2 <= s.length; i++) {
+    let ok = true;
+    const seen = [];
+    for (let g = 0; g < count; g++) {
+      const a = s[i + g * 2], b = s[i + g * 2 + 1];
+      if (a !== b) { ok = false; break; }
+      seen.push(a);
+    }
+    if (ok && new Set(seen).size === count) return true;
+  }
+  return false;
+}
+function contigPairsPositions(s, count) {
+  for (let i = 0; i + count * 2 <= s.length; i++) {
+    let ok = true;
+    const seen = [];
+    for (let g = 0; g < count; g++) {
+      const a = s[i + g * 2], b = s[i + g * 2 + 1];
+      if (a !== b) { ok = false; break; }
+      seen.push(a);
+    }
+    if (ok && new Set(seen).size === count) {
+      const out = []; for (let k = 0; k < count * 2; k++) out.push(i + k); return out;
+    }
+  }
+  return null;
+}
+function rhymePositions(s) {
+  for (let len = Math.floor(s.length / 2); len >= 2; len--) {
+    for (let i = 0; i + len <= s.length; i++) {
+      const sub = s.slice(i, i + len);
+      for (let j = i + len; j + len <= s.length; j++) {
+        if (s.slice(j, j + len) === sub) {
+          const out = [];
+          for (let k = 0; k < len; k++) out.push(i + k);
+          for (let k = 0; k < len; k++) out.push(j + k);
+          return out;
+        }
+      }
+    }
+  }
+  return null;
+}
+function fullHousePositions(d) {
+  const counts = {};
+  d.forEach((v, i) => { (counts[v] = counts[v] || []).push(i); });
+  const tripleVal = Object.keys(counts).find((k) => counts[k].length >= 3);
+  if (!tripleVal) return null;
+  const pairVal = Object.keys(counts).find((k) => k !== tripleVal && counts[k].length >= 2);
+  if (!pairVal) return null;
+  return counts[tripleVal].slice(0, 3).concat(counts[pairVal].slice(0, 2));
+}
+
+// ============================================================
+// SYMMETRY / STRUCTURE
+// ============================================================
+const CAT_SYM = 'Symmetry & Structure';
+mk('palindrome', 'Palindrome', 'Reads the same forwards and backwards.', CAT_SYM, TIER.RARE, (c) => c.s === H.reverseStr(c.s) && c.s.length >= 2);
+mk('pocket-mirror', 'Pocket Mirror', 'Contains a palindrome of 4 or more digits.', CAT_SYM, TIER.RARE, (c) => H.hasPalindromicSubstring(c.s, 4), { highlight: (c) => H.palindromicSubstringPositions(c.s, 4) });
+mk('strobogrammatic', 'Strobogrammatic', 'Looks the same when rotated 180 degrees.', CAT_SYM, TIER.EPIC, (c) => { const map = H.strobogrammaticMap(); let rotated = ''; for (const ch of c.s) { if (!(ch in map)) return false; rotated = map[ch] + rotated; } return rotated === c.s; });
+mk('bookends', 'Bookends', 'The first two digits match the last two.', CAT_SYM, TIER.RARE, (c) => c.s.length >= 4 && c.s.slice(0, 2) === c.s.slice(-2), { highlight: HL_FIRST2_LAST2 });
+mk('mirror-bookends', 'Mirror Bookends', 'First two digits are reversed as the last two.', CAT_SYM, TIER.UNCOMMON, (c) => c.s.length >= 4 && c.s.slice(0, 2) === H.reverseStr(c.s.slice(-2)), { highlight: HL_FIRST2_LAST2 });
+mk('paired-bookends', 'Paired Bookends', 'Starts with a pair and ends with a different pair.', CAT_SYM, TIER.UNCOMMON, (c) => c.s.length >= 4 && c.s[0] === c.s[1] && c.s[c.s.length - 1] === c.s[c.s.length - 2] && c.s[0] !== c.s[c.s.length - 1], { highlight: HL_FIRST2_LAST2 });
+mk('equilibrium', 'Equilibrium', 'The first and last digits are identical.', CAT_SYM, TIER.COMMON, (c) => c.s.length >= 2 && c.s[0] === c.s[c.s.length - 1], { highlight: HL_FIRST_LAST });
+mk('sandwich', 'Sandwich', 'First and last digits match, with at least one different digit between them.', CAT_SYM, TIER.COMMON, (c) => c.s.length >= 3 && c.s[0] === c.s[c.s.length - 1] && c.s.slice(1, -1).split('').some((x) => x !== c.s[0]), { highlight: HL_FIRST_LAST });
+mk('gap-one', 'Gap One', 'The first and last digits differ by exactly 1.', CAT_SYM, TIER.COMMON, (c) => c.s.length >= 2 && Math.abs(c.d[0] - c.d[c.d.length - 1]) === 1, { highlight: HL_FIRST_LAST });
+mk('balanced', 'Balanced', 'Sum of first half of digits equals sum of second half.', CAT_SYM, TIER.UNCOMMON, (c) => { if (c.d.length < 2) return false; const half = Math.floor(c.d.length / 2); const first = c.d.slice(0, half).reduce((a, b) => a + b, 0); const second = c.d.slice(c.d.length - half).reduce((a, b) => a + b, 0); return first === second; });
+mk('duality', 'Duality', 'Uses exactly two different digits.', CAT_SYM, TIER.UNCOMMON, (c) => new Set(c.d).size === 2, { family: 'variety' });
+mk('trinity', 'Trinity', 'Uses exactly three different digits.', CAT_SYM, TIER.COMMON, (c) => new Set(c.d).size === 3, { family: 'variety' });
+mk('quartet', 'Quartet', 'Uses exactly four different digits.', CAT_SYM, TIER.COMMON, (c) => new Set(c.d).size === 4, { family: 'variety' });
+mk('heterogeneous', 'Heterogeneous', 'No repeated digits.', CAT_SYM, TIER.UNCOMMON, (c) => new Set(c.d).size === c.d.length && c.d.length >= 3);
+
+// ============================================================
+// CONSECUTIVE-NUMBER SPLITTING
+// ============================================================
+const CAT_CONSEC = 'Consecutive-Number Splitting';
+mk('two-consec', '2 Consecutive Numbers', 'The entire number splits into two consecutive integers.', CAT_CONSEC, TIER.UNCOMMON, (c) => H.testConsecutiveExact(c.s, 2, false), { family: 'consec2' });
+mk('two-consec-contains', '2 Consecutive Numbers (Contains)', 'Contains two adjacent substrings that are consecutive integers.', CAT_CONSEC, TIER.COMMON, (c) => H.testConsecutiveContains(c.s, 2), { family: 'consec2contains' });
+mk('two-consec-nearby', '2 Consecutive Numbers (Nearby)', 'Contains two non-adjacent substrings that are consecutive integers.', CAT_CONSEC, TIER.UNCOMMON, (c) => H.testConsecutiveNearby(c.s, 2));
+mk('three-consec', '3 Consecutive Numbers', 'The entire number splits into three consecutive integers in order.', CAT_CONSEC, TIER.RARE, (c) => H.testConsecutiveExact(c.s, 3, false), { family: 'consec3' });
+mk('three-consec-scrambled', '3 Consecutive Numbers (Scrambled)', 'The entire number splits into three consecutive integers, but not in order.', CAT_CONSEC, TIER.RARE, (c) => H.testConsecutiveExact(c.s, 3, true));
+mk('three-consec-contains', '3 Consecutive Numbers (Contains)', 'Contains three adjacent consecutive integers.', CAT_CONSEC, TIER.UNCOMMON, (c) => H.testConsecutiveContains(c.s, 3), { family: 'consec3contains' });
+mk('four-consec', '4 Consecutive Numbers', 'The entire number splits into four consecutive integers in order.', CAT_CONSEC, TIER.EPIC, (c) => H.testConsecutiveExact(c.s, 4, false), { family: 'consec4' });
+// Note: "4 Consecutive Numbers (Scrambled)" and "4 Consecutive Numbers (Contains)" already
+// defined once each above (in Mathematics / Digit Patterns) to avoid duplicate badge ids,
+// since the source list repeats these three entries verbatim in this section.
+
+// ============================================================
+// RECOGNIZABLE NUMBERS / CULTURAL REFERENCES
+// ============================================================
+const CAT_CULT = 'Recognizable Numbers & Cultural References';
+mk('nice', 'Nice', 'Contains the number 69.', CAT_CULT, TIER.COMMON, (c) => c.s.includes('69'), { family: 'nice', highlight: contains('69') });
+mk('very-nice', 'Very Nice', 'Contains "6969".', CAT_CULT, TIER.RARE, (c) => c.s.includes('6969'), { highlight: contains('6969') });
+mk('meaning-of-life', 'Meaning of Life', 'Contains "42".', CAT_CULT, TIER.COMMON, (c) => c.s.includes('42'), { family: 'meaning', highlight: contains('42') });
+mk('deeper-meaning', 'Deeper Meaning', 'Contains "4242".', CAT_CULT, TIER.RARE, (c) => c.s.includes('4242'), { highlight: contains('4242') });
+mk('six-seven', 'Six-Seven', 'Contains "67".', CAT_CULT, TIER.COMMON, (c) => c.s.includes('67'), { family: 'sixseven', highlight: contains('67') });
+mk('6767', '6767', 'Contains "6767".', CAT_CULT, TIER.RARE, (c) => c.s.includes('6767'), { highlight: contains('6767') });
+mk('eighty-six', 'Eighty-Six', 'Contains "86" (restaurant slang for "out of").', CAT_CULT, TIER.COMMON, (c) => c.s.includes('86'), { family: 'eightysix', highlight: contains('86') });
+mk('leet', 'Leet', 'Contains "1337".', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('1337'), { family: 'leet', highlight: contains('1337') });
+mk('hell', 'Hell', 'Contains "7734" (spells HELL upside-down).', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('7734'), { family: 'hell', highlight: contains('7734') });
+mk('hello', 'Hello', 'Contains "07734" (spells HELLO upside-down).', CAT_CULT, TIER.RARE, (c) => c.s.includes('07734'), { highlight: contains('07734') });
+mk('big-brother', 'Big Brother', 'Contains "1984".', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('1984'), { family: 'bigbrother', highlight: contains('1984') });
+mk('error-404', 'Error 404', 'Contains "404".', CAT_CULT, TIER.COMMON, (c) => c.s.includes('404'), { family: 'error404', highlight: contains('404') });
+mk('orientation', 'Orientation', 'Contains "101" (intro course number).', CAT_CULT, TIER.COMMON, (c) => c.s.includes('101'), { family: 'orientation', highlight: contains('101') });
+mk('botanist', 'Botanist', 'Contains "420".', CAT_CULT, TIER.COMMON, (c) => c.s.includes('420'), { family: 'botanist', highlight: contains('420') });
+mk('emergency', 'Emergency', 'Contains "911".', CAT_CULT, TIER.COMMON, (c) => c.s.includes('911'), { family: 'emergency', highlight: contains('911') });
+mk('calendar', 'Calendar', 'Contains "365" (days in a year).', CAT_CULT, TIER.COMMON, (c) => c.s.includes('365'), { family: 'calendar', highlight: contains('365') });
+mk('secret-agent', 'Secret Agent', 'Contains "007".', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('007'), { highlight: contains('007') });
+mk('jackpot', 'Jackpot', 'Contains "777".', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('777'), { family: 'jackpotfamily', highlight: contains('777') });
+mk('devil', 'Devil', 'Contains "666".', CAT_CULT, TIER.UNCOMMON, (c) => c.s.includes('666'), { family: 'devil', highlight: contains('666') });
+mk('royal-flush', 'Royal Flush', 'Contains 56789 - the highest possible straight.', CAT_CULT, TIER.EPIC, (c) => c.s.includes('56789'), { highlight: contains('56789') });
+mk('funny-numbers', 'Funny Numbers', 'Contains both "69" and "420".', CAT_CULT, TIER.RARE, (c) => c.s.includes('69') && c.s.includes('420'), { highlight: (c) => (H.firstSubstringPositions(c.s, '69') || []).concat(H.firstSubstringPositions(c.s, '420') || []) });
+
+// ============================================================
+// CONSTANTS / NUMBER SLICES
+// ============================================================
+const CAT_SLICE = 'Constants & Number Slices';
+mk('pi-slice-3', 'Pi Slice (3)', 'Contains "314".', CAT_SLICE, TIER.COMMON, (c) => c.s.includes('314'), { family: 'pislice', highlight: contains('314') });
+mk('pi-slice-4', 'Pi Slice (4)', 'Contains "3141".', CAT_SLICE, TIER.UNCOMMON, (c) => c.s.includes('3141'), { family: 'pislice', highlight: contains('3141') });
+mk('pi-slice-5', 'Pi Slice (5)', 'Contains "31415".', CAT_SLICE, TIER.RARE, (c) => c.s.includes('31415'), { family: 'pislice', highlight: contains('31415') });
+mk('e-slice-3', 'E Slice (3)', 'Contains "271".', CAT_SLICE, TIER.COMMON, (c) => c.s.includes('271'), { family: 'eslice', highlight: contains('271') });
+mk('e-slice-4', 'E Slice (4)', 'Contains "2718".', CAT_SLICE, TIER.UNCOMMON, (c) => c.s.includes('2718'), { family: 'eslice', highlight: contains('2718') });
+mk('e-slice-5', 'E Slice (5)', 'Contains "27182".', CAT_SLICE, TIER.RARE, (c) => c.s.includes('27182'), { family: 'eslice', highlight: contains('27182') });
+mk('tau-slice-4', 'Tau Slice (4)', 'Contains "6283".', CAT_SLICE, TIER.UNCOMMON, (c) => c.s.includes('6283'), { family: 'tauslice', highlight: contains('6283') });
+mk('tau-slice-5', 'Tau Slice (5)', 'Contains "62831".', CAT_SLICE, TIER.RARE, (c) => c.s.includes('62831'), { family: 'tauslice', highlight: contains('62831') });
+// "Golden Ratio" and "Fibonacci Number" already defined above (Mathematics section);
+// the source list repeats them verbatim here.
+
+// ============================================================
+// ZERO / ENDING PATTERNS
+// ============================================================
+const CAT_ZERO = 'Zero & Ending Patterns';
+mk('deep-void-2', 'Deep Void', 'Contains "00".', CAT_ZERO, TIER.COMMON, (c) => c.s.includes('00'), { family: 'deepvoid', highlight: contains('00') });
+mk('deep-void-3', 'Deep Void (3)', 'Contains "000".', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.includes('000'), { family: 'deepvoid', highlight: contains('000') });
+mk('deep-void-4', 'Deep Void (4)', 'Contains "0000".', CAT_ZERO, TIER.RARE, (c) => c.s.includes('0000'), { family: 'deepvoid', highlight: contains('0000') });
+mk('deep-void-5', 'Deep Void (5)', 'Contains "00000".', CAT_ZERO, TIER.EPIC, (c) => c.s.includes('00000'), { family: 'deepvoid', highlight: contains('00000') });
+mk('clean', 'Clean', 'Ends in a zero.', CAT_ZERO, TIER.COMMON, (c) => c.s.endsWith('0'), { family: 'ending', highlight: endsWithLen(1) });
+mk('semi-clean', 'Semi-Clean', 'Ends in a 5.', CAT_ZERO, TIER.COMMON, (c) => c.s.endsWith('5'), { highlight: endsWithLen(1) });
+mk('century', 'Century', 'Ends in double zeros.', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.endsWith('00'), { family: 'ending', highlight: endsWithLen(2) });
+mk('millennium', 'Millennium', 'Ends in triple zeros.', CAT_ZERO, TIER.RARE, (c) => c.s.endsWith('000'), { family: 'ending', highlight: endsWithLen(3) });
+mk('epoch', 'Epoch', 'Ends in four zeros.', CAT_ZERO, TIER.EPIC, (c) => c.s.endsWith('0000'), { family: 'ending', highlight: endsWithLen(4) });
+mk('eon', 'Eon', 'Ends in five zeros.', CAT_ZERO, TIER.ANOMALY, (c) => c.s.endsWith('00000'), { family: 'ending', highlight: endsWithLen(5) });
+mk('semi-century', 'Semi-Century', 'Ends in "50".', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.endsWith('50'), { highlight: endsWithLen(2) });
+mk('semi-millennium', 'Semi-Millennium', 'Ends in "500".', CAT_ZERO, TIER.RARE, (c) => c.s.endsWith('500'), { highlight: endsWithLen(3) });
+mk('semi-epoch', 'Semi-Epoch', 'Ends in "5000".', CAT_ZERO, TIER.EPIC, (c) => c.s.endsWith('5000'), { highlight: endsWithLen(4) });
+mk('semi-eon', 'Semi-Eon', 'Ends in "50000".', CAT_ZERO, TIER.ANOMALY, (c) => c.s.endsWith('50000'), { highlight: endsWithLen(5) });
+mk('quarter-century', 'Quarter-Century', 'Ends in "25".', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.endsWith('25'), { highlight: endsWithLen(2) });
+mk('three-quarter-century', 'Three-Quarter Century', 'Ends in "75".', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.endsWith('75'), { highlight: endsWithLen(2) });
+mk('double-nine', 'Double Nine', 'Ends in 99.', CAT_ZERO, TIER.UNCOMMON, (c) => c.s.endsWith('99'), { family: 'nines', highlight: endsWithLen(2) });
+mk('triple-nine', 'Triple Nine', 'Ends in 999.', CAT_ZERO, TIER.RARE, (c) => c.s.endsWith('999'), { family: 'nines', highlight: endsWithLen(3) });
+mk('quad-nine', 'Quad Nine', 'Ends in 9999.', CAT_ZERO, TIER.EPIC, (c) => c.s.endsWith('9999'), { family: 'nines', highlight: endsWithLen(4) });
+mk('quint-nine', 'Quint Nine', 'Ends in 99999.', CAT_ZERO, TIER.ANOMALY, (c) => c.s.endsWith('99999'), { family: 'nines', highlight: endsWithLen(5) });
+
+// ============================================================
+// NUMBER LENGTH
+// ============================================================
+const CAT_LEN = 'Number Length';
+mk('single-digit', 'Single Digit', 'Has exactly one digit.', CAT_LEN, TIER.UNCOMMON, (c) => c.s.length === 1, { family: 'length' });
+mk('two-digits', 'Two Digits', 'Has exactly two digits.', CAT_LEN, TIER.COMMON, (c) => c.s.length === 2, { family: 'length' });
+mk('three-digits', 'Three Digits', 'Has exactly three digits.', CAT_LEN, TIER.COMMON, (c) => c.s.length === 3, { family: 'length' });
+mk('four-digits', 'Four Digits', 'Has exactly four digits.', CAT_LEN, TIER.COMMON, (c) => c.s.length === 4, { family: 'length' });
+mk('five-digits', 'Five Digits', 'Has exactly five digits.', CAT_LEN, TIER.COMMON, (c) => c.s.length === 5, { family: 'length' });
+mk('six-digits', 'Six Digits', 'Has exactly six digits.', CAT_LEN, TIER.COMMON, (c) => c.s.length === 6, { family: 'length' });
+
+// ============================================================
+// SIMPLE MATHEMATICAL / DIGIT PROPERTIES
+// ============================================================
+const CAT_SIMPLE = 'Simple Properties';
+mk('even', 'Even', 'Divisible by 2.', CAT_SIMPLE, TIER.COMMON, (c) => c.n % 2 === 0, { family: 'parity', highlight: HL_LAST });
+mk('odd', 'Odd', 'Not divisible by 2.', CAT_SIMPLE, TIER.COMMON, (c) => c.n % 2 === 1, { family: 'parity', highlight: HL_LAST });
+mk('lucky-seven', 'Lucky Seven', 'Contains the number 7.', CAT_SIMPLE, TIER.COMMON, (c) => c.s.includes('7'), { highlight: (c) => H.occurrencesOf(c.s, '7') });
+mk('void', 'Void', 'Contains no zeros.', CAT_SIMPLE, TIER.COMMON, (c) => !c.s.includes('0'));
+mk('low-ball', 'Low Ball', 'Contains only digits from 0 to 4.', CAT_SIMPLE, TIER.UNCOMMON, (c) => c.d.every((x) => x <= 4));
+mk('high-roller', 'High Roller', 'Contains only digits from 5 to 9.', CAT_SIMPLE, TIER.UNCOMMON, (c) => c.d.every((x) => x >= 5));
+mk('feather', 'Feather', 'The sum of its digits is less than 15.', CAT_SIMPLE, TIER.COMMON, (c) => c.d.reduce((a, b) => a + b, 0) < 15);
+mk('heavy', 'Heavy', 'The sum of its digits exceeds 45.', CAT_SIMPLE, TIER.RARE, (c) => c.d.reduce((a, b) => a + b, 0) > 45);
+mk('blackjack', 'Blackjack', 'Digits sum exactly to 21.', CAT_SIMPLE, TIER.UNCOMMON, (c) => c.d.reduce((a, b) => a + b, 0) === 21);
+mk('neighbors', 'Neighbors', 'Contains two digits that are adjacent in value.', CAT_SIMPLE, TIER.COMMON, (c) => { const set = new Set(c.d); for (const v of set) if (set.has(v + 1)) return true; return false; }, { highlight: (c) => H.neighborPositions(c.s, c.d) });
+mk('grounded', 'Grounded', 'The first digit is smaller than the last.', CAT_SIMPLE, TIER.COMMON, (c) => c.s.length >= 2 && c.d[0] < c.d[c.d.length - 1], { highlight: HL_FIRST_LAST });
+mk('liftoff', 'Liftoff', 'The first digit is larger than the last.', CAT_SIMPLE, TIER.COMMON, (c) => c.s.length >= 2 && c.d[0] > c.d[c.d.length - 1], { highlight: HL_FIRST_LAST });
+mk('colossal', 'Colossal', 'A number greater than 999,000.', CAT_SIMPLE, TIER.RARE, (c) => c.n > 999000);
+mk('hydrogen', 'Hydrogen (1)', 'Contains exactly one "1".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 1).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '1') });
+mk('helium', 'Helium (2)', 'Contains exactly one "2".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 2).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '2') });
+mk('lithium', 'Lithium (3)', 'Contains exactly one "3".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 3).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '3') });
+mk('beryllium', 'Beryllium (4)', 'Contains exactly one "4".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 4).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '4') });
+mk('boron', 'Boron (5)', 'Contains exactly one "5".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 5).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '5') });
+mk('carbon', 'Carbon (6)', 'Contains exactly one "6".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 6).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '6') });
+mk('nitrogen', 'Nitrogen (7)', 'Contains exactly one "7".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 7).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '7') });
+mk('oxygen', 'Oxygen (8)', 'Contains exactly one "8".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 8).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '8') });
+mk('fluorine', 'Fluorine (9)', 'Contains exactly one "9".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 9).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '9') });
+mk('ghost', 'Ghost', 'Contains exactly one "0".', CAT_SIMPLE, TIER.COMMON, (c) => c.d.filter((x) => x === 0).length === 1, { highlight: (c) => H.occurrencesOf(c.s, '0') });
+
+// ============================================================
+// FAMILY RANK TABLES (strongest match in a family keeps its EP;
+// weaker co-matches in the same family are shown as "supporting"
+// discoveries worth 0 additional EP).
+// ============================================================
+// ============================================================
+// REAL EP CALIBRATION
+// Overrides the procedurally-guessed EP above with EP derived
+// from actual empirical odds recorded across large-scale rolls:
+// EP = 1,000,000 / (times seen per 1,000,000 rolls). Rarity tier
+// is then re-bucketed from that real EP so the badge's color and
+// label stay honest about how rare it actually is.
+// ============================================================
+const EP_OVERRIDES = {
+  '17776': 1000000,
+  '6767': 3344,
+  'jackpot-four': 3571,
+  'jackpot-five': 52632,
+  'boob-8008': 3333,
+  'boob-58008': 50000,
+  'boob-80085': 50000,
+  'alternator': 28,
+  'always': 500000,
+  'ascension': 2193,
+  'balanced': 20,
+  'beryllium': 3,
+  'big-brother': 3333,
+  'binary-soul': 15385,
+  'blackjack': 25,
+  'bookends': 100,
+  'boron': 3,
+  'botanist': 250,
+  'brainrot': 1000000,
+  'calendar': 250,
+  'canyon': 12,
+  'carbon': 3,
+  'cascade': 33333,
+  'century': 100,
+  'clean': 10,
+  'colossal': 1000,
+  'contig-fives': 5525,
+  'contig-full-house': 301,
+  'contig-pair': 2,
+  'contig-quads': 370,
+  'contig-sixes': 100000,
+  'contig-three-pair': 1543,
+  'contig-trips': 28,
+  'contig-two-pair': 40,
+  'crescendo': 2083,
+  'decay': 1195,
+  'deep-void-2': 28,
+  'deep-void-3': 370,
+  'deep-void-4': 5525,
+  'deep-void-5': 100000,
+  'deeper-meaning': 3344,
+  'devil': 270,
+  'div-by-three': 244,
+  'double-hop': 53,
+  'double-nine': 100,
+  'dozen': 12,
+  'duality': 217,
+  'dunes': 4,
+  'e-slice-3': 250,
+  'e-slice-4': 3333,
+  'e-slice-5': 50000,
+  'echo': 1001,
+  'eight': 1000000,
+  'eighty-six': 20,
+  'eleven': 11,
+  'emergency': 250,
+  'eon': 100000,
+  'epoch': 10000,
+  'equation': 77,
+  'equilibrium': 10,
+  'error-404': 251,
+  'eulers-number': 250000,
+  'even': 2,
+  'even-spacing': 8621,
+  'even-spacing-abs': 910,
+  'exact-80085': 1000000,
+  'exact-boob': 500000,
+  'exact-botanist': 1000000,
+  'exact-calendar': 1000000,
+  'exact-devil': 1000000,
+  'exact-eighty-six': 1000000,
+  'exact-emergency': 1000000,
+  'exact-hell': 1000000,
+  'exact-jackpot': 1000000,
+  'exact-leet': 1000000,
+  'exact-meaning': 1000000,
+  'exact-nice': 1000000,
+  'exact-orientation': 1000000,
+  'exact-six-seven': 1000000,
+  'factorial': 111111,
+  'feather': 27,
+  'fibonacci': 33333,
+  'firefly': 822,
+  'five': 1000000,
+  'five-digits': 11,
+  'five-of-a-kind': 1980,
+  'fluorine': 3,
+  'flush': 28,
+  'four': 1000000,
+  'four-consec': 250000,
+  'four-consec-contains-seq': 26316,
+  'four-consec-scrambled': 22727,
+  'four-digits': 111,
+  'four-of-a-kind': 84,
+  'framed-double': 152,
+  'framed-pair': 1372,
+  'framed-quad': 1372,
+  'framed-triple': 1372,
+  'full-day': 1000000,
+  'full-house': 24,
+  'funny-number': 500000,
+  'funny-numbers': 16667,
+  'gap-one': 5,
+  'ghost': 3,
+  'golden-ratio': 333333,
+  'grounded': 3,
+  'groundhog-day': 1000000,
+  'harshad': 10,
+  'heavy': 333,
+  'helium': 3,
+  'hell': 3333,
+  'hello': 111111,
+  'heterogeneous': 6,
+  'high-roller': 51,
+  'hills': 7,
+  'homogeneous': 22222,
+  'hopscotch': 3,
+  'hotbox': 1000000,
+  'hydrogen': 3,
+  'infernal': 1000000,
+  'jackpot': 270,
+  'jackpot-six': 1000000,
+  'leet': 3333,
+  'liftoff': 2,
+  'lithium': 3,
+  'low-ball': 64,
+  'lucky-seven': 2,
+  'lucky-seven-div': 7,
+  'mayday': 1000000,
+  'meaning-of-life': 20,
+  'mesa': 16,
+  'metronome': 178,
+  'millennium': 1000,
+  'mini-echo': 37,
+  'mini-scramble': 6,
+  'mirror-bookends': 100,
+  'mountain': 59,
+  'neighbors': 2,
+  'nice': 20,
+  'nine': 1000000,
+  'nitrogen': 3,
+  'not-found': 1000000,
+  'odd': 2,
+  'one': 1000000,
+  'one-million': 1000000,
+  'orientation': 251,
+  'orwellian': 1000000,
+  'ouroboros': 142857,
+  'oxygen': 3,
+  'pair': 1,
+  'paired-bookends': 111,
+  'palindrome': 500,
+  'pi': 250000,
+  'pi-slice-3': 250,
+  'pi-slice-4': 3333,
+  'pi-slice-5': 50000,
+  'pocket-mirror': 21,
+  'power-10': 250000,
+  'power-11': 250000,
+  'power-13': 333333,
+  'power-17': 333333,
+  'power-19': 333333,
+  'power-2': 999,
+  'power-3': 9901,
+  'power-4': 31250,
+  'power-5': 62500,
+  'power-6': 90909,
+  'power-7': 125000,
+  'power-8': 166667,
+  'power-9': 200000,
+  'power-of-five': 111111,
+  'power-of-seven': 125000,
+  'power-of-three': 76923,
+  'power-of-two': 50000,
+  'prime': 13,
+  'pronic': 1000,
+  'quad-nine': 10000,
+  'quarter-century': 100,
+  'quartet': 3,
+  'quint-nine': 100000,
+  'rhyme': 19,
+  'royal-flush': 50000,
+  'sandwich': 10,
+  'scramble': 227,
+  'secret-agent': 346,
+  'semi-century': 100,
+  'semi-clean': 10,
+  'semi-eon': 100000,
+  'semi-epoch': 10000,
+  'semi-millennium': 1000,
+  'sequence-3': 17,
+  'sequence-4': 259,
+  'sequence-6': 111111,
+  'seven': 1000000,
+  'single-digit': 100000,
+  'six': 1000000,
+  'six-digits': 1,
+  'six-seven': 20,
+  'slopes': 126,
+  'snake-eyes': 21,
+  'spy-number': 10309,
+  'steps': 202,
+  'straight': 4545,
+  'straight-flush': 14493,
+  'strobogrammatic': 5025,
+  'tau': 333333,
+  'tau-slice-4': 3333,
+  'tau-slice-5': 50000,
+  'three': 1000000,
+  'three-consec': 5556,
+  'three-consec-contains': 1580,
+  'three-consec-scrambled': 2778,
+  'three-digits': 1111,
+  'three-of-a-kind': 7,
+  'three-pair': 103,
+  'three-quarter-century': 100,
+  'trinity': 13,
+  'triple-nine': 1000,
+  'turtle': 360,
+  'two': 1000000,
+  'two-consec': 505,
+  'two-consec-contains': 17,
+  'two-consec-nearby': 16,
+  'two-digits': 11111,
+  'two-pair': 4,
+  'universal-answer': 1000000,
+  'valley': 42,
+  'very-nice': 3344,
+  'very-very-nice': 1000000,
+  'void': 2,
+  'waterfall': 28571,
+  'zero': 1000000,
+  'zipper': 2469,
+};
+
+function tierForEP(ep) {
+  if (ep >= 500000) return TIER.MYTHIC;
+  if (ep >= 50000) return TIER.ANOMALY;
+  if (ep >= 5000) return TIER.EPIC;
+  if (ep >= 500) return TIER.RARE;
+  if (ep >= 50) return TIER.UNCOMMON;
+  return TIER.COMMON;
+}
+
+BADGES.forEach((b) => {
+  if (EP_OVERRIDES[b.id] !== undefined) {
+    b.ep = EP_OVERRIDES[b.id];
+    const t = tierForEP(b.ep);
+    b.tier = t.key; b.tierLabel = t.label; b.tierOrder = t.order; b.color = t.color;
+  }
+});
+
+const FAMILY_RANK = {
+  nice: ['exact-nice', 'nice'],
+  jackpotfamily: ['exact-jackpot', 'jackpot', 'jackpot-four', 'jackpot-five', 'jackpot-six'],
+  boobfamily: ['exact-80085', 'exact-boob', 'boob-80085', 'boob-58008', 'boob-8008'],
+  botanist: ['exact-botanist', 'botanist'],
+  devil: ['exact-devil', 'devil'],
+  leet: ['exact-leet', 'leet'],
+  hell: ['exact-hell', 'hell'],
+  meaning: ['exact-meaning', 'meaning-of-life'],
+  emergency: ['exact-emergency', 'emergency'],
+  bigbrother: ['orwellian', 'big-brother'],
+  sixseven: ['exact-six-seven', 'six-seven'],
+  eightysix: ['exact-eighty-six', 'eighty-six'],
+  orientation: ['exact-orientation', 'orientation'],
+  calendar: ['exact-calendar', 'calendar'],
+  error404: ['not-found', 'error-404'],
+  power: ['power-17', 'power-19', 'power-13', 'power-11', 'power-10', 'power-9', 'power-8', 'power-7', 'power-6', 'power-5', 'power-4', 'power-3', 'power-2'],
+  pow7: ['power-of-seven'],
+  pow5: ['power-of-five'],
+  pow3: ['power-of-three'],
+  pow2: ['power-of-two'],
+  consec4: ['four-consec'],
+  consec4contains: ['four-consec-contains-seq'],
+  consec3: ['three-consec'],
+  consec3contains: ['three-consec-contains'],
+  consec2: ['two-consec'],
+  consec2contains: ['two-consec-contains'],
+  sequence: ['sequence-6', 'straight', 'sequence-4', 'sequence-3'],
+  kind: ['five-of-a-kind', 'four-of-a-kind', 'three-of-a-kind', 'two-pair', 'pair'],
+  contigrun: ['contig-sixes', 'contig-fives', 'contig-quads', 'contig-trips', 'contig-pair'],
+  ascdesc: ['ascension', 'decay'],
+  stepsslopes: ['steps', 'slopes'],
+  scramble: ['scramble', 'mini-scramble'],
+  hop: ['double-hop', 'hopscotch'],
+  evenspacing: ['even-spacing', 'even-spacing-abs'],
+  variety: ['duality', 'trinity', 'quartet'],
+  deepvoid: ['deep-void-5', 'deep-void-4', 'deep-void-3', 'deep-void-2'],
+  ending: ['eon', 'epoch', 'millennium', 'century', 'clean'],
+  nines: ['quint-nine', 'quad-nine', 'triple-nine', 'double-nine'],
+  length: ['single-digit', 'two-digits', 'three-digits', 'four-digits', 'five-digits', 'six-digits'],
+  pislice: ['pi-slice-5', 'pi-slice-4', 'pi-slice-3'],
+  eslice: ['e-slice-5', 'e-slice-4', 'e-slice-3'],
+  tauslice: ['tau-slice-5', 'tau-slice-4'],
+  phi: ['golden-ratio'],
+  parity: ['even', 'odd'],
+};
+
+const CATEGORIES = [
+  CAT_EXACT, CAT_MATH, CAT_SEQ, CAT_REP, CAT_SYM, CAT_CONSEC, CAT_CULT, CAT_SLICE, CAT_ZERO, CAT_LEN, CAT_SIMPLE,
+];
+
+// ============================================================
+// OVERALL ROLL RATING
+// A roll's rating is NOT just its highest badge's tier -- it's
+// where the roll's total EP actually falls among all 1,000,001
+// possible rolls (0 to 1,000,000), each equally likely. These
+// EP cutoffs were measured by scoring every single possible
+// roll once and reading off the real percentile boundaries, so
+// "Mythic" here genuinely means "top 1% of all rolls that will
+// ever happen" rather than a guess.
+// ============================================================
+const EP_PERCENTILES = { p1: 28, p50: 81, p75: 135, p90: 314, p95: 776, p99: 2153 };
+
+const ROLL_RATING = [
+  { key: 'trash', label: 'Trash', order: 0, color: '#6B6858' },
+  { key: 'common', label: 'Common', order: 1, color: '#7B828F' },
+  { key: 'uncommon', label: 'Uncommon', order: 2, color: '#4FD1C5' },
+  { key: 'rare', label: 'Rare', order: 3, color: '#5B8DEF' },
+  { key: 'epic', label: 'Epic', order: 4, color: '#B565D9' },
+  { key: 'anomaly', label: 'Anomaly', order: 5, color: '#FF6B6B' },
+  { key: 'mythic', label: 'Mythic', order: 6, color: '#FFD166' },
+];
+
+function ratingForEP(ep) {
+  if (ep < EP_PERCENTILES.p1) return ROLL_RATING[0]; // bottom 1% -> Trash
+  if (ep < EP_PERCENTILES.p50) return ROLL_RATING[1]; // bottom 50% -> Common
+  if (ep < EP_PERCENTILES.p75) return ROLL_RATING[2]; // 50-75% -> Uncommon
+  if (ep < EP_PERCENTILES.p90) return ROLL_RATING[3]; // 75-90% -> Rare
+  if (ep < EP_PERCENTILES.p95) return ROLL_RATING[4]; // 90-95% -> Epic
+  if (ep < EP_PERCENTILES.p99) return ROLL_RATING[5]; // 95-99% -> Anomaly
+  return ROLL_RATING[6]; // top 1% -> Mythic
+}
+
+window.BadgesModule = { BADGES, byId, TIER, FAMILY_RANK, CATEGORIES, ROLL_RATING, EP_PERCENTILES, ratingForEP };
+
+})();
+
+(function(){
+const { BADGES, byId, TIER, FAMILY_RANK, ratingForEP } = window.BadgesModule;
+
+function analyzeNumber(n) {
+  const s = String(n);
+  const d = s.split('').map(Number);
+  const ctx = { n, s, d };
+  const matched = [];
+  for (const b of BADGES) {
+    let ok = false;
+    try { ok = !!b.test(ctx); } catch (e) { ok = false; }
+    if (ok) matched.push(b);
+  }
+  // family adjustment: within each family, only the highest-EP match
+  // (using the real, calibrated EP) scores; the rest are "supporting".
+  const matchedIds = new Set(matched.map((b) => b.id));
+  const byBadgeId = {};
+  matched.forEach((b) => { byBadgeId[b.id] = b; });
+  const supporting = new Set();
+  for (const famKey of Object.keys(FAMILY_RANK)) {
+    const present = FAMILY_RANK[famKey].filter((id) => matchedIds.has(id));
+    if (present.length > 1) {
+      const sorted = present.slice().sort((a, b) => byBadgeId[b].ep - byBadgeId[a].ep);
+      for (let i = 1; i < sorted.length; i++) supporting.add(sorted[i]);
+    }
+  }
+  let totalEP = 0;
+  const results = matched.map((b) => {
+    const isSupporting = supporting.has(b.id);
+    if (!isSupporting) totalEP += b.ep;
+    let positions = null;
+    if (b.highlight) {
+      try { positions = b.highlight(ctx); } catch (e) { positions = null; }
+    }
+    if (!positions || !positions.length) positions = Array.from({ length: s.length }, (_, i) => i);
+    return { ...b, epAwarded: isSupporting ? 0 : b.ep, supporting: isSupporting, positions };
+  });
+  results.sort((a, b) => b.tierOrder - a.tierOrder || b.epAwarded - a.epAwarded);
+  const rarityTier = ratingForEP(totalEP);
+  return { n, s, badges: results, totalEP, rarity: rarityTier };
+}
+
+window.analyzeNumber = analyzeNumber;
+
+})();
+
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var BADGES = window.BadgesModule.BADGES;
+  var CATEGORIES = window.BadgesModule.CATEGORIES;
+  var TIER = window.BadgesModule.TIER;
+  var ROLL_RATING = window.BadgesModule.ROLL_RATING;
+  var byId = window.BadgesModule.byId;
+  var analyzeNumber = window.analyzeNumber;
+  var systemPrefersReducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var STORAGE_KEY = 'drift-numbers-state-v1';
+  var MAX_HISTORY = 400;
+
+  function freshState() {
+    return {
+      lifetimeEP: 0,
+      totalRolls: 0,
+      history: [],
+      badgeStats: {},
+      bestEP: 0,
+      milestonesShown: [],
+      soundOn: false,
+      streaks: { noNewCurrent: 0, noNewLongest: 0, newCurrent: 0, newLongest: 0 },
+      achievementsShown: [],
+      hasRolledAnomaly: false,
+      hasRolledMythic: false,
+      onboardingSeen: false,
+      reducedMotionOverride: null, // null = follow system, true/false = explicit override
+    };
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return freshState();
+      var parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return freshState();
+      return Object.assign(freshState(), parsed);
+    } catch (e) {
+      return freshState();
+    }
+  }
+
+  function saveState() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable; continue in-memory */ }
+  }
+
+  var state = loadState();
+  // reducedMotionOverride: null follows the OS setting; true/false is an
+  // explicit in-app choice from the footer toggle, independent of it.
+  var reduceMotion = state.reducedMotionOverride === null ? systemPrefersReducedMotion : !!state.reducedMotionOverride;
+
+  // ---------- crypto RNG ----------
+  function rollRandomNumber() {
+    var buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return buf[0] % 1000001; // 0..1,000,000 inclusive
+  }
+
+  // ---------- dom refs ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var reelRow = $('reelRow');
+  var statusLine = $('statusLine');
+  var rollBtn = $('rollBtn');
+  var discoveries = $('discoveries');
+  var discoveriesTitle = $('discoveriesTitle');
+  var discoveriesCount = $('discoveriesCount');
+  var badgeList = $('badgeList');
+  var summaryCard = $('summaryCard');
+  var nearMiss = $('nearMiss');
+  var rollAgainRow = $('rollAgainRow');
+  var reelRowWrap = $('reelRow');
+  var ratingPill = $('ratingPill');
+  var reelFrame = $('reelFrame');
+  var chargeFill = $('chargeFill');
+  var appEl = $('app');
+  var cutsceneStage = $('cutsceneStage');
+  var cutsceneRaysSvg = $('cutsceneRaysSvg');
+  var cutsceneFlash = $('cutsceneFlash');
+  var cutsceneEyebrow = $('cutsceneEyebrow');
+  var cutsceneNumber = $('cutsceneNumber');
+  var cutsceneTitle = $('cutsceneTitle');
+  var cutsceneSub = $('cutsceneSub');
+  var mythicRays = $('mythicRays');
+  var milestoneOverlay = $('milestoneOverlay');
+
+  // Whether the anime.js CDN script actually loaded. Everything animation-
+  // related below checks this and falls back to a plain CSS/instant path
+  // when it's false, so a blocked or slow CDN never breaks the game.
+  var hasAnime = typeof anime !== 'undefined' && typeof anime.timeline === 'function';
+  if (!hasAnime) document.documentElement.classList.add('no-anime');
+
+  var CELLS = 6;
+  var cellEls = [];
+  for (var i = 0; i < CELLS; i++) {
+    var cell = document.createElement('div');
+    cell.className = 'digit-cell';
+    var track = document.createElement('div');
+    track.className = 'digit-track';
+    track.textContent = '0';
+    cell.appendChild(track);
+    reelRow.appendChild(cell);
+    cellEls.push(cell);
+  }
+
+  function setStatus(msg) { statusLine.textContent = msg; }
+
+  // ---------- top stats ----------
+  function renderTopStats() {
+    $('statEP').textContent = formatNumber(state.lifetimeEP);
+    $('statRolls').textContent = formatNumber(state.totalRolls);
+    var badgeCount = Object.keys(state.badgeStats).length;
+    $('statBadges').textContent = badgeCount;
+    $('statPct').textContent = Math.round((badgeCount / BADGES.length) * 100) + '%';
+  }
+  function formatNumber(n) { return n.toLocaleString('en-US'); }
+
+  // ---------- nav ----------
+  var navButtons = document.querySelectorAll('.nav-btn');
+  navButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () { switchView(btn.dataset.view); });
+  });
+  function switchView(name) {
+    document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('active'); });
+    navButtons.forEach(function (b) { b.classList.toggle('active', b.dataset.view === name); });
+    $('view-' + name).classList.add('active');
+    if (name === 'collection') renderCollection();
+    if (name === 'history') renderHistory();
+    if (name === 'stats') renderStats();
+  }
+  $('viewCollectionBtn').addEventListener('click', function () { switchView('collection'); });
+
+  // ============================================================
+  // SOUND ENGINE (Web Audio, synthesized -- no audio files needed).
+  // Off by default; the person opts in. Every tone is generated,
+  // never autoplayed outside a user gesture.
+  // ============================================================
+  var audioCtx = null;
+  var soundOn = !!state.soundOn;
+  function updateSoundLabel() { $('toggleSound').textContent = 'Sound: ' + (soundOn ? 'On' : 'Off'); }
+  function ensureAudio() {
+    if (!soundOn) return;
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+  }
+  function tone(freq, startDelay, duration, type, gainPeak) {
+    if (!soundOn || !audioCtx) return;
+    try {
+      var t0 = audioCtx.currentTime + startDelay;
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(gainPeak || 0.12, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + duration + 0.05);
+    } catch (e) { /* audio not available; game continues silently */ }
+  }
+  function playChargeSweep(durationMs) {
+    if (!soundOn || !audioCtx) return;
+    try {
+      var t0 = audioCtx.currentTime;
+      var d = Math.max(0.15, durationMs / 1000);
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(200, t0);
+      osc.frequency.linearRampToValueAtTime(560, t0 + d);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.07, t0 + 0.05);
+      gain.gain.linearRampToValueAtTime(0.0001, t0 + d);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t0); osc.stop(t0 + d + 0.05);
+    } catch (e) {}
+  }
+  var CHIME_NOTES = {
+    0: [[300, 0, 0.14, 'sine', 0.05]],
+    1: [[380, 0, 0.14, 'sine', 0.06]],
+    2: [[440, 0, 0.12, 'triangle', 0.07], [560, 0.08, 0.14, 'triangle', 0.07]],
+    3: [[523, 0, 0.12, 'triangle', 0.08], [659, 0.09, 0.14, 'triangle', 0.08]],
+    4: [[523, 0, 0.1, 'triangle', 0.09], [659, 0.09, 0.1, 'triangle', 0.09], [784, 0.18, 0.2, 'triangle', 0.09]],
+    5: [[587, 0, 0.1, 'sawtooth', 0.07], [740, 0.09, 0.1, 'sawtooth', 0.07], [880, 0.18, 0.1, 'sawtooth', 0.07], [1175, 0.27, 0.25, 'sawtooth', 0.08]],
+    6: [[659, 0, 0.12, 'sine', 0.1], [831, 0.1, 0.12, 'sine', 0.1], [988, 0.2, 0.12, 'sine', 0.1], [1319, 0.3, 0.4, 'sine', 0.11]],
+  };
+  function playTierChime(order) {
+    (CHIME_NOTES[order] || []).forEach(function (n) { tone(n[0], n[1], n[2], n[3], n[4]); });
+  }
+  updateSoundLabel();
+  $('toggleSound').addEventListener('click', function () {
+    soundOn = !soundOn;
+    state.soundOn = soundOn;
+    saveState();
+    updateSoundLabel();
+    if (soundOn) { ensureAudio(); tone(523, 0, 0.15, 'sine', 0.08); }
+  });
+
+  // ---------- reduced-motion override (independent of the OS setting) ----------
+  function updateMotionLabel() { $('toggleMotion').textContent = 'Motion: ' + (reduceMotion ? 'Reduced' : 'Full'); }
+  updateMotionLabel();
+  $('toggleMotion').addEventListener('click', function () {
+    reduceMotion = !reduceMotion;
+    state.reducedMotionOverride = reduceMotion;
+    saveState();
+    updateMotionLabel();
+  });
+
+  // ---------- save import / export (also duplicated in the research panel's
+  // export, which is fine -- that one's aimed at inspecting the raw data,
+  // this one's the everyday "back up / move to another device" path) ----------
+  function downloadJSON(filename, dataObj) {
+    var blob = new Blob([JSON.stringify(dataObj, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  }
+  $('exportSaveBtn').addEventListener('click', function () {
+    downloadJSON('drift-save.json', state);
+  });
+  $('importSaveBtn').addEventListener('click', function () { $('importSaveInput').click(); });
+  $('importSaveInput').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var parsed;
+      try { parsed = JSON.parse(reader.result); } catch (err) { alert('That file is not valid JSON.'); return; }
+      if (!parsed || typeof parsed !== 'object' || typeof parsed.badgeStats !== 'object') {
+        alert('That doesn\'t look like a Drift save file.'); return;
+      }
+      if (!confirm('Import this save? It will replace your current progress (EP, badges, history) in this browser.')) return;
+      state = Object.assign(freshState(), parsed);
+      soundOn = !!state.soundOn;
+      reduceMotion = state.reducedMotionOverride === null ? systemPrefersReducedMotion : !!state.reducedMotionOverride;
+      saveState();
+      updateSoundLabel();
+      updateMotionLabel();
+      renderTopStats();
+      renderCollection();
+      renderHistory();
+      renderStats();
+      setStatus('Save imported. Welcome back.');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+
+  // ============================================================
+  // ROLL SEQUENCE
+  // ============================================================
+  var rolling = false;
+
+  function padDigits(n) {
+    return String(n).padStart(CELLS, '0');
+  }
+
+  function spinCell(cell, finalChar, stopDelay, onDone) {
+    var track = cell.querySelector('.digit-track');
+    cell.classList.add('spinning');
+    cell.classList.remove('settled');
+    if (reduceMotion) {
+      track.textContent = finalChar;
+      cell.classList.remove('spinning');
+      cell.classList.add('settled');
+      if (onDone) onDone();
+      return;
+    }
+    var start = performance.now();
+    function tick(now) {
+      var elapsed = now - start;
+      if (elapsed < stopDelay) {
+        track.textContent = String(Math.floor(Math.random() * 10));
+        var remaining = stopDelay - elapsed;
+        var interval = remaining < 180 ? 85 : remaining < 480 ? 55 : 32;
+        setTimeout(function () { requestAnimationFrame(tick); }, interval);
+      } else {
+        track.textContent = finalChar;
+        cell.classList.remove('spinning');
+        cell.classList.add('settled');
+        cell.style.transition = 'none';
+        cell.style.transform = 'scale(1.1)';
+        requestAnimationFrame(function () {
+          cell.style.transition = 'transform 0.28s cubic-bezier(.25,1.6,.4,1)';
+          cell.style.transform = 'scale(1)';
+        });
+        var ring = document.createElement('div');
+        ring.className = 'radar-ping';
+        ring.style.setProperty('--tier-color', 'var(--accent)');
+        ring.style.width = '100%'; ring.style.height = '100%'; ring.style.margin = '0';
+        ring.style.left = '0'; ring.style.top = '0'; ring.style.borderWidth = '1px';
+        cell.appendChild(ring);
+        pingRing(ring, { duration: 850 });
+        if (onDone) onDone();
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function runRollSequence(forcedN) {
+    if (rolling) return;
+    rolling = true;
+    rollBtn.disabled = true;
+    if (!state.onboardingSeen) dismissOnboarding();
+    discoveries.style.display = 'none';
+    summaryCard.style.display = 'none';
+    summaryCard.classList.remove('show');
+    nearMiss.style.display = 'none';
+    badgeList.innerHTML = '';
+    rollAgainRow.style.display = 'none';
+    reelFrame.classList.remove('aura-rare', 'aura-epic', 'aura-anomaly', 'aura-mythic');
+    stopMythicRays();
+    stopGlow();
+    resetCutsceneStage();
+    ensureAudio();
+
+    var n = (typeof forcedN === 'number' && forcedN >= 0 && forcedN <= 1000000) ? forcedN : rollRandomNumber();
+    // Analyzed *before* the spin plays, not after -- this is what lets the
+    // spin itself foreshadow a big roll (a longer, more dramatic lock on the
+    // final digit) instead of the excitement only starting once it's over.
+    var result = analyzeNumber(n);
+    var padded = padDigits(n);
+    var isMythic = result.rarity.order === 6;
+
+    reelRowWrap.classList.add('glow');
+    reelRowWrap.classList.remove('rated');
+    ratingPill.classList.remove('show');
+    setStatus('Scanning\u2026');
+
+    var baseSpin = 560 + Math.random() * 180;
+    var settleCount = 0;
+    for (var i = 0; i < CELLS; i++) {
+      var stopDelay = baseSpin + i * (110 + Math.random() * 40);
+      var isLast = i === CELLS - 1;
+      if (isLast && isMythic && !reduceMotion) stopDelay += 950 + Math.random() * 350;
+      (function (idx, delay, last) {
+        spinCell(cellEls[idx], padded[idx], delay, function () {
+          settleCount++;
+          if (settleCount === CELLS) {
+            if (isMythic && !reduceMotion) {
+              // The badge reveal genuinely waits for the cutscene to finish
+              // (not a fixed delay) -- otherwise it would reveal underneath
+              // the full-screen takeover and be done before it dissolves.
+              playMythicCutscene(n, result, function () { finalizeRoll(n, result); });
+            } else {
+              setTimeout(function () { finalizeRoll(n, result); }, reduceMotion ? 0 : 260);
+            }
+          }
+        });
+      })(i, stopDelay, isLast);
+    }
+  }
+
+  function finalizeRoll(n, result) {
+    reelRowWrap.classList.remove('glow');
+    setStatus('Analyzing ' + n + '\u2026');
+    stampRating(result.rarity);
+    runChargeBar(result.rarity, function () {
+      setStatus(result.badges.length + ' pattern' + (result.badges.length === 1 ? '' : 's') + ' detected.');
+      revealBadges(n, result);
+    });
+  }
+
+  function stampRating(rarity) {
+    ratingPill.textContent = rarity.label;
+    ratingPill.style.setProperty('--tier-color', rarity.color);
+    reelRowWrap.style.setProperty('--tier-color', rarity.color);
+    reelFrame.style.setProperty('--tier-color', rarity.color);
+    reelRowWrap.classList.add('rated');
+    requestAnimationFrame(function () { ratingPill.classList.add('show'); });
+    applyAura(rarity.order);
+    playTierChime(rarity.order);
+  }
+
+  // ---------- ambient tiered auras ----------
+  var glowAnim = null; // active breathing-glow anime.js instance, if any
+  function stopGlow() {
+    if (glowAnim) { glowAnim.pause(); glowAnim = null; }
+    reelRowWrap.style.filter = '';
+  }
+  function startGlow(color, cycleMs) {
+    stopGlow();
+    if (!hasAnime || reduceMotion) return; // CSS .no-anime fallback handles this instead
+    var proxy = { blur: 18 };
+    glowAnim = anime({
+      targets: proxy,
+      blur: [18, 32],
+      duration: cycleMs / 2,
+      direction: 'alternate',
+      loop: true,
+      easing: 'easeInOutSine',
+      update: function () {
+        reelRowWrap.style.filter = 'drop-shadow(0 0 ' + proxy.blur + 'px ' + color + ')';
+      },
+    });
+  }
+
+  // Shared "expanding ring" effect used for the digit-lock pulse, the
+  // anomaly radar ping, and the EP shockwave -- one anime.js animation
+  // instead of three separate CSS keyframes to keep tuning them in sync.
+  function pingRing(el, opts) {
+    opts = opts || {};
+    var life = opts.duration || 1100;
+    if (reduceMotion) { setTimeout(function () { el.remove(); }, 50); return; }
+    if (!hasAnime) { setTimeout(function () { el.remove(); }, life + 150); return; } // .no-anime CSS drives the visual
+    anime({
+      targets: el,
+      scale: [opts.fromScale || 0.4, opts.toScale || 4.4],
+      opacity: [opts.fromOpacity || 0.75, 0],
+      duration: life,
+      easing: opts.easing || 'easeOutQuad',
+      complete: function () { el.remove(); },
+    });
+  }
+
+  function applyAura(order) {
+    reelFrame.classList.remove('aura-rare', 'aura-epic', 'aura-anomaly', 'aura-mythic');
+    if (reduceMotion) { stopGlow(); return; }
+    if (order >= 3) reelFrame.classList.add('aura-rare');
+    if (order >= 4) reelFrame.classList.add('aura-epic');
+    if (order >= 5) reelFrame.classList.add('aura-anomaly');
+    if (order >= 6) reelFrame.classList.add('aura-mythic');
+
+    // epic+ breathes faster/brighter than a plain rare roll; anomaly/mythic
+    // keep the epic cadence (the rays and cutscene carry the extra weight
+    // for mythic specifically, so the base glow doesn't need to escalate further).
+    if (order >= 4) startGlow('var(--tier-color)', 2100);
+    else if (order === 3) startGlow('var(--tier-color)', 2600);
+    else stopGlow();
+
+    if (order >= 4) spawnSparks(6);
+    if (order >= 5) { spawnRadarPing(reelFrame); spawnSparks(5); }
+    // The small ambient rays on the reel itself (as opposed to the big
+    // cutscene ray-burst, which already played out before we got here)
+    // start now and keep spinning until the next roll.
+    if (order >= 6) startMythicRays();
+  }
+  function spawnSparks(count) {
+    if (reduceMotion) return;
+    var color = getComputedStyle(reelFrame).getPropertyValue('--tier-color') || '#E8A33D';
+    var els = [];
+    for (var i = 0; i < count; i++) {
+      var el = document.createElement('div');
+      el.className = 'spark';
+      el.style.left = (10 + Math.random() * 80) + '%';
+      reelFrame.appendChild(el);
+      els.push(el);
+    }
+    if (!hasAnime) {
+      // .no-anime CSS path: needs --drift per element and the old keyframe
+      els.forEach(function (el) {
+        el.style.setProperty('--drift', (Math.random() * 44 - 22) + 'px');
+        el.style.animationDelay = Math.round(Math.random() * 450) + 'ms';
+        setTimeout(function () { el.remove(); }, 2000);
+      });
+      return;
+    }
+    anime({
+      targets: els,
+      translateY: function () { return -(58 + Math.random() * 26); },
+      translateX: function () { return Math.random() * 44 - 22; },
+      scale: [0.6, 1],
+      opacity: [
+        { value: 1, duration: 160, easing: 'easeOutQuad' },
+        { value: 0, duration: 950, easing: 'easeInQuad' },
+      ],
+      delay: anime.stagger(90),
+      duration: 1150,
+      easing: 'easeOutQuad',
+      complete: function () { els.forEach(function (el) { el.remove(); }); },
+    });
+  }
+  function spawnRadarPing(container) {
+    if (reduceMotion) return;
+    var ring = document.createElement('div');
+    ring.className = 'radar-ping';
+    container.appendChild(ring);
+    pingRing(ring, { duration: 1150 });
+  }
+
+  // ---------- suspense / temperature bar ----------
+  function runChargeBar(rarity, cb) {
+    var duration = 420 + rarity.order * 110;
+    if (reduceMotion) { setTimeout(cb, 80); return; }
+    playChargeSweep(duration);
+    chargeFill.style.transition = 'none';
+    chargeFill.style.background = rarity.color;
+    chargeFill.style.width = '0%';
+    void chargeFill.offsetWidth;
+    chargeFill.style.transition = 'width ' + duration + 'ms linear';
+    requestAnimationFrame(function () { chargeFill.style.width = '100%'; });
+    setTimeout(function () {
+      chargeFill.style.transition = 'width 0.2s ease';
+      chargeFill.style.width = '0%';
+      cb();
+    }, duration + 40);
+  }
+
+  // ============================================================
+  // MYTHIC RAYS + CUTSCENE -- built with anime.js
+  // hasAnime guards every call: if the CDN script failed to load for any
+  // reason, the game degrades to instant show/hide instead of breaking.
+  // ============================================================
+  var RAY_COLOR = '#FFE59A';
+
+  function buildMythicRays() {
+    if (!mythicRays || mythicRays.dataset.built) return;
+    var count = 14;
+    var ns = 'http://www.w3.org/2000/svg';
+    var defs = document.createElementNS(ns, 'defs');
+    var grad = document.createElementNS(ns, 'linearGradient');
+    grad.setAttribute('id', 'rayGrad');
+    grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+    grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+    var stop1 = document.createElementNS(ns, 'stop');
+    stop1.setAttribute('offset', '0%'); stop1.setAttribute('stop-color', RAY_COLOR); stop1.setAttribute('stop-opacity', '0.95');
+    var stop2 = document.createElementNS(ns, 'stop');
+    stop2.setAttribute('offset', '100%'); stop2.setAttribute('stop-color', RAY_COLOR); stop2.setAttribute('stop-opacity', '0');
+    grad.appendChild(stop1); grad.appendChild(stop2);
+    defs.appendChild(grad);
+    mythicRays.appendChild(defs);
+    var group = document.createElementNS(ns, 'g');
+    group.setAttribute('transform', 'translate(100,100)');
+    for (var i = 0; i < count; i++) {
+      var angle = (360 / count) * i;
+      var rect = document.createElementNS(ns, 'rect');
+      var len = 55 + (i % 3) * 12; // slightly irregular lengths, less mechanical
+      rect.setAttribute('x', '-2'); rect.setAttribute('y', String(-len));
+      rect.setAttribute('width', '4'); rect.setAttribute('height', String(len - 40));
+      rect.setAttribute('rx', '2'); rect.setAttribute('fill', 'url(#rayGrad)');
+      rect.setAttribute('transform', 'rotate(' + angle + ')');
+      group.appendChild(rect);
+    }
+    mythicRays.appendChild(group);
+    mythicRays.dataset.built = '1';
+  }
+  buildMythicRays();
+
+  function startMythicRays() {
+    if (reduceMotion) return;
+    buildMythicRays();
+    if (hasAnime) {
+      anime.remove(mythicRays);
+      mythicRays.style.opacity = '0';
+      mythicRays.style.transform = 'rotate(0deg) scale(0.65)';
+      // One combined call, not two separate ones -- anime.js composes
+      // multiple transform properties (scale + rotate) correctly only
+      // within a single call; split across two calls, the second one's
+      // per-frame transform string silently overwrites the first's.
+      anime({
+        targets: mythicRays,
+        opacity: { value: [0, 0.85], duration: 900, easing: 'easeOutElastic(1, .6)' },
+        scale: { value: [0.65, 1], duration: 900, easing: 'easeOutElastic(1, .6)' },
+        rotate: { value: '360deg', duration: 9000, easing: 'linear', loop: true },
+      });
+    } else {
+      mythicRays.style.opacity = '0.85';
+    }
+  }
+  function stopMythicRays() {
+    if (hasAnime) anime.remove(mythicRays);
+    mythicRays.style.opacity = '0';
+    mythicRays.style.transform = 'rotate(0deg) scale(0.65)';
+  }
+
+  // ---------- cutscene ray-burst (bigger, separate from the ambient reel rays) ----------
+  function buildCutsceneRays() {
+    if (cutsceneRaysSvg.dataset.built) return;
+    var count = 20;
+    var ns = 'http://www.w3.org/2000/svg';
+    var defs = document.createElementNS(ns, 'defs');
+    var grad = document.createElementNS(ns, 'linearGradient');
+    grad.setAttribute('id', 'cutsceneRayGrad');
+    grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+    grad.setAttribute('x2', '0'); grad.setAttribute('y2', '1');
+    var stop1 = document.createElementNS(ns, 'stop');
+    stop1.setAttribute('offset', '0%'); stop1.setAttribute('stop-color', RAY_COLOR); stop1.setAttribute('stop-opacity', '0.9');
+    var stop2 = document.createElementNS(ns, 'stop');
+    stop2.setAttribute('offset', '100%'); stop2.setAttribute('stop-color', RAY_COLOR); stop2.setAttribute('stop-opacity', '0');
+    grad.appendChild(stop1); grad.appendChild(stop2);
+    defs.appendChild(grad);
+    cutsceneRaysSvg.appendChild(defs);
+    var group = document.createElementNS(ns, 'g');
+    group.setAttribute('transform', 'translate(200,200)');
+    for (var i = 0; i < count; i++) {
+      var angle = (360 / count) * i;
+      var rect = document.createElementNS(ns, 'rect');
+      var len = 150 + (i % 4) * 22;
+      rect.setAttribute('x', '-3'); rect.setAttribute('y', String(-len));
+      rect.setAttribute('width', '6'); rect.setAttribute('height', String(len - 60));
+      rect.setAttribute('rx', '3'); rect.setAttribute('fill', 'url(#cutsceneRayGrad)');
+      rect.setAttribute('transform', 'rotate(' + angle + ')');
+      group.appendChild(rect);
+    }
+    cutsceneRaysSvg.appendChild(group);
+    cutsceneRaysSvg.dataset.built = '1';
+  }
+
+  var activeCutsceneTL = null;
+  function resetCutsceneStage() {
+    if (activeCutsceneTL) { activeCutsceneTL.pause(); activeCutsceneTL = null; }
+    cutsceneStage.classList.remove('active');
+    [cutsceneEyebrow, cutsceneNumber, cutsceneTitle, cutsceneSub, cutsceneRaysSvg, cutsceneFlash, cutsceneStage].forEach(function (el) {
+      if (hasAnime) anime.remove(el);
+      el.style.opacity = '';
+    });
+    cutsceneEyebrow.style.opacity = '0';
+    cutsceneNumber.style.opacity = '0'; cutsceneNumber.style.transform = 'scale(0.72)';
+    cutsceneTitle.style.opacity = '0';
+    cutsceneSub.style.opacity = '0';
+    cutsceneRaysSvg.style.opacity = '0'; cutsceneRaysSvg.style.transform = '';
+    cutsceneFlash.style.opacity = '0';
+    cutsceneStage.style.transform = '';
+    var barTop = cutsceneStage.querySelector('.cutscene-bar-top');
+    var barBottom = cutsceneStage.querySelector('.cutscene-bar-bottom');
+    if (barTop) { if (hasAnime) anime.remove(barTop); barTop.style.transform = 'translateY(-100%)'; }
+    if (barBottom) { if (hasAnime) anime.remove(barBottom); barBottom.style.transform = 'translateY(100%)'; }
+  }
+
+  // ============================================================
+  // THE CUTSCENE ITSELF
+  // A genuine full-screen takeover: letterbox bars, a ray burst, the rolled
+  // number shown huge, the tier title, a shake, then it dissolves back into
+  // the game. Everything else (finalizeRoll / badge reveal) waits for this
+  // to actually finish -- onComplete is how that handoff happens.
+  // ============================================================
+  function playMythicCutscene(n, result, onComplete) {
+    if (reduceMotion) { if (onComplete) onComplete(); return; }
+    buildCutsceneRays();
+    cutsceneNumber.textContent = n.toLocaleString('en-US');
+    cutsceneSub.textContent = formatNumber(result.totalEP) + ' EP \u00b7 ' +
+      result.badges.length + ' pattern' + (result.badges.length === 1 ? '' : 's') + ' detected';
+    resetCutsceneStage();
+    cutsceneStage.classList.add('active');
+    ensureAudio();
+    playTierChime(6);
+
+    function finish() {
+      resetCutsceneStage();
+      if (onComplete) onComplete();
+    }
+    var skipHandler = function () {
+      if (activeCutsceneTL) activeCutsceneTL.pause();
+      finish();
+    };
+    cutsceneStage.addEventListener('click', skipHandler, { once: true });
+
+    if (!hasAnime) {
+      setTimeout(function () { cutsceneStage.removeEventListener('click', skipHandler); finish(); }, 1700);
+      return;
+    }
+
+    var barTop = cutsceneStage.querySelector('.cutscene-bar-top');
+    var barBottom = cutsceneStage.querySelector('.cutscene-bar-bottom');
+    var tl = anime.timeline({
+      easing: 'easeOutExpo',
+      complete: function () { cutsceneStage.removeEventListener('click', skipHandler); finish(); },
+    });
+    activeCutsceneTL = tl;
+    // Absolute offsets (ms from timeline start) throughout, rather than
+    // chained '-=' relative ones -- with a long ray animation in the mix,
+    // relative offsets compound unpredictably. Explicit numbers here mean
+    // "eyebrow starts at 500ms" always means exactly that, however the
+    // rest of the sequence changes.
+    tl.add({ targets: barTop, translateY: ['-100%', '0%'], duration: 460, easing: 'easeOutExpo' }, 0)
+      .add({ targets: barBottom, translateY: ['100%', '0%'], duration: 460, easing: 'easeOutExpo' }, 0)
+      .add({
+        targets: cutsceneRaysSvg,
+        opacity: [
+          { value: 0.85, duration: 500, easing: 'easeOutQuad' },
+          { value: 0.85, duration: 2700 },
+          { value: 0, duration: 500, easing: 'easeInQuad' },
+        ],
+        scale: { value: [0.6, 1], duration: 600, easing: 'easeOutElastic(1, .6)' },
+        rotate: { value: '150deg', duration: 3700, easing: 'linear' },
+      }, 220)
+      .add({ targets: cutsceneEyebrow, opacity: [0, 1], translateY: [8, 0], duration: 320, easing: 'easeOutQuad' }, 480)
+      .add({ targets: cutsceneNumber, opacity: [0, 1], scale: [0.72, 1.08], duration: 600, easing: 'easeOutElastic(1, .55)' }, 720)
+      .add({ targets: cutsceneNumber, scale: 1, duration: 200, easing: 'easeOutQuad' }, 1320)
+      .add({ targets: cutsceneTitle, opacity: [0, 1], letterSpacing: ['0.02em', '0.08em'], duration: 380, easing: 'easeOutQuad' }, 1200)
+      .add({ targets: cutsceneSub, opacity: [0, 1], duration: 340, easing: 'easeOutQuad' }, 1450)
+      .add({ targets: cutsceneFlash, opacity: [0, 0.85, 0], duration: 560, easing: 'easeOutQuad' }, 2300)
+      .add({ targets: cutsceneStage, translateX: [0, -7, 7, -5, 5, -2, 2, 0], duration: 480, easing: 'easeOutQuad' }, 2340)
+      .add({ targets: [cutsceneEyebrow, cutsceneNumber, cutsceneTitle, cutsceneSub], opacity: 0, duration: 380, easing: 'easeInQuad' }, 3050)
+      .add({ targets: barTop, translateY: '-100%', duration: 420, easing: 'easeInExpo' }, 3450)
+      .add({ targets: barBottom, translateY: '100%', duration: 420, easing: 'easeInExpo' }, 3450);
+  }
+
+
+  function tierDelay(tier) {
+    switch (tier) {
+      case 'common': return 220 + Math.random() * 140;
+      case 'uncommon': return 300 + Math.random() * 170;
+      case 'rare': return 440 + Math.random() * 200;
+      case 'epic': return 620 + Math.random() * 220;
+      case 'anomaly': return 780 + Math.random() * 260;
+      case 'mythic': return 920 + Math.random() * 280;
+      default: return 260;
+    }
+  }
+  function suspenseDuration(tier) {
+    if (tier === 'epic') return 600;
+    if (tier === 'anomaly') return 850;
+    if (tier === 'mythic') return 1150;
+    return 0;
+  }
+  function chargeLabelFor(tier) {
+    if (tier === 'epic') return 'Something unusual\u2026';
+    if (tier === 'anomaly') return 'This is rare\u2026';
+    if (tier === 'mythic') return 'Hold on\u2026';
+    return '';
+  }
+  function fireFlash(color, linger) {
+    var overlay = $('flashOverlay');
+    overlay.style.setProperty('--flash-color', color);
+    overlay.classList.remove('fire', 'linger');
+    void overlay.offsetWidth; // restart animation
+    overlay.classList.add(linger ? 'linger' : 'fire');
+  }
+
+  // Inserts newEl at the top of the discoveries list and smoothly pushes
+  // every existing row down to make room, using the FLIP technique (record
+  // old positions, insert, measure the jump, animate away from it) so the
+  // "push down" reads as a physical shove rather than an instant snap.
+  function insertAtTopWithPush(newEl) {
+    var existing = Array.prototype.slice.call(badgeList.children);
+    if (reduceMotion) { badgeList.insertBefore(newEl, badgeList.firstChild); return; }
+    var oldTops = existing.map(function (el) { return el.getBoundingClientRect().top; });
+    badgeList.insertBefore(newEl, badgeList.firstChild);
+    existing.forEach(function (el, i) {
+      var newTop = el.getBoundingClientRect().top;
+      var delta = oldTops[i] - newTop;
+      if (Math.abs(delta) > 0.5) {
+        el.style.transition = 'none';
+        el.style.transform = 'translateY(' + delta + 'px)';
+        void el.offsetWidth;
+        el.style.transition = 'transform 0.42s cubic-bezier(.22,.9,.3,1)';
+        el.style.transform = 'translateY(0)';
+      }
+    });
+  }
+
+  function revealBadges(n, result) {
+    discoveries.style.display = 'block';
+    discoveriesTitle.textContent = result.badges.length ? 'Discoveries' : 'Nothing extraordinary\u2026 or is there?';
+    discoveriesCount.textContent = result.badges.length ? (result.badges.length + ' found') : '';
+
+    var newIds = [];
+    result.badges.forEach(function (b) { if (!state.badgeStats[b.id]) newIds.push(b.id); });
+
+    // Reveal worst-to-best: common badges flash by quickly, and the rarest
+    // badge in the roll resolves last, with a suspenseful buildup beforehand.
+    // Timing between badges is randomized rather than fixed -- unpredictable
+    // pacing (a variable-ratio schedule) is what keeps each reveal feeling
+    // like an event instead of a metronome.
+    var order = result.badges.slice().sort(function (a, b) {
+      return (a.tierOrder - b.tierOrder) || (a.ep - b.ep);
+    });
+    var idx = 0;
+
+    function placeBadge(b, isNew) {
+      var row = document.createElement('div');
+      row.className = 'badge-row';
+      row.style.setProperty('--tier-color', b.color);
+      row.innerHTML =
+        '<div class="badge-dot"></div>' +
+        digitStripHtml(result.s, b.positions, false) +
+        '<div class="badge-info">' +
+          '<div class="badge-name">' + escapeHtml(b.name) +
+            (isNew ? '<span class="new-flag">NEW</span>' : '') +
+            (b.supporting ? '<span class="support-flag">supporting</span>' : '') +
+          '</div>' +
+          '<div class="badge-desc">' + escapeHtml(b.desc) + '</div>' +
+        '</div>' +
+        '<div class="badge-tier">' + b.tierLabel + '</div>' +
+        '<div class="badge-ep">' + (b.epAwarded > 0 ? '+' + b.epAwarded : '\u2014') + '</div>';
+      insertAtTopWithPush(row);
+      var big = isNew && (b.tier === 'anomaly' || b.tier === 'mythic');
+      requestAnimationFrame(function () {
+        row.classList.add('pop');
+        if (isNew) row.classList.add('newbadge');
+        if (big) row.classList.add('big');
+      });
+      // The roll-level Mythic cutscene already delivered the big screen
+      // moment at spin-lock time, so an individual mythic-tier badge here
+      // doesn't re-flash the screen -- only a standalone anomaly-tier one does.
+      if (isNew && b.tier === 'anomaly' && !reduceMotion) fireFlash(b.color, false);
+      idx++;
+      setTimeout(next, tierDelay(b.tier));
+    }
+
+    function next() {
+      if (idx >= order.length) {
+        finishReveal(n, result, newIds);
+        return;
+      }
+      var b = order[idx];
+      var isNew = newIds.indexOf(b.id) !== -1;
+      var buildup = suspenseDuration(b.tier);
+
+      if (buildup > 0 && !reduceMotion) {
+        var sus = document.createElement('div');
+        sus.className = 'badge-suspense';
+        sus.style.setProperty('--tier-color', b.color);
+        sus.innerHTML = '<span class="charge-label">' + chargeLabelFor(b.tier) + '</span>';
+        insertAtTopWithPush(sus);
+        setTimeout(function () {
+          sus.remove();
+          placeBadge(b, isNew);
+        }, buildup);
+      } else {
+        placeBadge(b, isNew);
+      }
+    }
+    if (result.badges.length === 0) {
+      finishReveal(n, result, newIds);
+    } else {
+      next();
+    }
+  }
+
+  function finishReveal(n, result, newIds) {
+    // commit to state
+    var prevBestEP = state.bestEP || 0;
+    var badgeCountBefore = Object.keys(state.badgeStats).length;
+    state.totalRolls++;
+    state.lifetimeEP += result.totalEP;
+    result.badges.forEach(function (b) {
+      if (!state.badgeStats[b.id]) state.badgeStats[b.id] = { count: 0, epTotal: 0, firstRoll: state.totalRolls };
+      state.badgeStats[b.id].count++;
+      state.badgeStats[b.id].epTotal += b.epAwarded;
+      state.badgeStats[b.id].lastNumber = result.s;
+      state.badgeStats[b.id].lastPositions = b.positions;
+    });
+    state.history.unshift({
+      n: n, ep: result.totalEP, rarity: result.rarity.key, rarityLabel: result.rarity.label,
+      badgeIds: result.badges.map(function (b) { return b.id; }),
+      newBadgeIds: newIds, ts: Date.now(),
+    });
+    if (state.history.length > MAX_HISTORY) state.history.length = MAX_HISTORY;
+
+    // personal best: only counts as a "beat" once you have a prior roll to beat
+    var isPersonalBest = state.totalRolls > 1 && result.totalEP > prevBestEP;
+    if (result.totalEP > (state.bestEP || 0)) state.bestEP = result.totalEP;
+
+    // streaks
+    if (newIds.length === 0) {
+      state.streaks.noNewCurrent++;
+      state.streaks.newCurrent = 0;
+    } else {
+      state.streaks.newCurrent++;
+      state.streaks.noNewCurrent = 0;
+    }
+    state.streaks.noNewLongest = Math.max(state.streaks.noNewLongest, state.streaks.noNewCurrent);
+    state.streaks.newLongest = Math.max(state.streaks.newLongest, state.streaks.newCurrent);
+    if (result.rarity.key === 'anomaly') state.hasRolledAnomaly = true;
+    if (result.rarity.key === 'mythic') state.hasRolledMythic = true;
+
+    // collection milestones: celebrate the highest newly-crossed threshold
+    var badgeCountAfter = Object.keys(state.badgeStats).length;
+    var pctBefore = Math.round((badgeCountBefore / BADGES.length) * 100);
+    var pctAfter = Math.round((badgeCountAfter / BADGES.length) * 100);
+    var milestoneToShow = null;
+    [25, 50, 75, 100].forEach(function (t) {
+      if (pctAfter >= t && pctBefore < t && state.milestonesShown.indexOf(t) === -1) {
+        state.milestonesShown.push(t);
+        milestoneToShow = t;
+      }
+    });
+
+    // achievements: could be several at once (e.g. "Unlock all" jumps every
+    // category to 100% simultaneously) -- queue them all, celebrate in order.
+    var newlyUnlockedAchievements = [];
+    ACHIEVEMENTS.forEach(function (a) {
+      if (state.achievementsShown.indexOf(a.id) === -1 && a.check()) {
+        state.achievementsShown.push(a.id);
+        newlyUnlockedAchievements.push(a);
+      }
+    });
+
+    saveState();
+    renderTopStats();
+
+    // summary card: a short "charging" beat before the count-up starts,
+    // longer counts for bigger hauls (the wait itself is part of the payoff),
+    // and a final punch-scale when the number lands.
+    summaryCard.style.display = 'block';
+    summaryCard.style.setProperty('--tier-color', result.rarity.color);
+    summaryCard.innerHTML =
+      '<div class="summary-number">' + n + '</div>' +
+      '<div class="summary-ep" id="summaryEPCount" style="color:' + result.rarity.color + '">\u2026</div>' +
+      '<div class="summary-meta">' + result.rarity.label + ' roll &middot; ' + result.badges.length + ' discoveries' +
+        (newIds.length ? ' &middot; ' + newIds.length + ' new badge' + (newIds.length === 1 ? '' : 's') : '') + '</div>' +
+      '<button class="ghost-btn share-btn" id="shareRollBtn">Share this roll</button>' +
+      (isPersonalBest ? '<div class="pb-ribbon">NEW BEST</div>' : '');
+    $('shareRollBtn').addEventListener('click', function () { shareRoll(n, result); });
+    requestAnimationFrame(function () { summaryCard.classList.add('show'); });
+    var countDuration = Math.max(650, Math.min(1900, Math.round(Math.log10(result.totalEP + 10) * 380)));
+    var chargeWait = reduceMotion ? 0 : 260;
+    setTimeout(function () {
+      var epEl = $('summaryEPCount');
+      epEl.textContent = '0';
+      animateCountUp(epEl, result.totalEP, countDuration, function () {
+        epEl.style.transition = 'none';
+        epEl.style.transform = 'scale(1.16)';
+        requestAnimationFrame(function () {
+          epEl.style.transition = 'transform 0.3s cubic-bezier(.25,1.7,.4,1)';
+          epEl.style.transform = 'scale(1)';
+        });
+        if (result.rarity.order >= 4 && !reduceMotion) {
+          var shock = document.createElement('div');
+          shock.className = 'ep-shock';
+          shock.style.setProperty('--tier-color', result.rarity.color);
+          epEl.appendChild(shock);
+          pingRing(shock, { duration: 850, fromScale: 0.3, toScale: 3.2 });
+        }
+      });
+    }, chargeWait);
+    // Anomaly gets its lingering afterglow flash here; Mythic already got its
+    // big moment from the cutscene at spin-lock, so it doesn't repeat it.
+    if (result.rarity.order === 5 && !reduceMotion) fireFlash(result.rarity.color, true);
+
+    // near-miss
+    var misses = computeNearMisses(n, result);
+    if (misses.length) {
+      nearMiss.style.display = 'block';
+      nearMiss.innerHTML = misses.map(function (m) { return '<div>' + m + '</div>'; }).join('');
+    } else {
+      nearMiss.style.display = 'none';
+    }
+
+    rollAgainRow.style.display = 'flex';
+    rollBtn.disabled = false;
+    rolling = false;
+    setStatus(newIds.length ? 'New discovery.' : 'Logged. Roll again?');
+
+    if (milestoneToShow !== null) newlyUnlockedAchievements.unshift({ __milestone: milestoneToShow });
+    if (newlyUnlockedAchievements.length) queueCelebrations(newlyUnlockedAchievements);
+  }
+
+  // ---------- celebration queue (milestones + achievements share the overlay) ----------
+  function queueCelebrations(items, idx) {
+    idx = idx || 0;
+    if (idx >= items.length) return;
+    setTimeout(function () {
+      var item = items[idx];
+      if (item.__milestone !== undefined) celebrateMilestone(item.__milestone);
+      else celebrateAchievement(item);
+      queueCelebrations(items, idx + 1);
+    }, idx === 0 ? 1100 : 3800);
+  }
+
+  // ---------- collection milestones ----------
+  function celebrateMilestone(pct) {
+    var eyebrowEl = milestoneOverlay.querySelector('.milestone-eyebrow');
+    var textEl = milestoneOverlay.querySelector('.milestone-text');
+    eyebrowEl.textContent = 'MILESTONE';
+    textEl.textContent = pct === 100
+      ? 'Every badge discovered.'
+      : pct + '% of all badges discovered';
+    milestoneOverlay.classList.add('show');
+    saveState();
+    if (!reduceMotion) spawnConfetti(milestoneOverlay, 42);
+    playTierChime(6);
+    if (navigator.vibrate) navigator.vibrate([40, 40, 80]);
+    setTimeout(function () {
+      milestoneOverlay.classList.remove('show');
+      var pieces = milestoneOverlay.querySelectorAll('.confetti-piece');
+      pieces.forEach(function (p) { p.remove(); });
+    }, 3600);
+  }
+  function celebrateAchievement(achievement) {
+    var eyebrowEl = milestoneOverlay.querySelector('.milestone-eyebrow');
+    var textEl = milestoneOverlay.querySelector('.milestone-text');
+    eyebrowEl.textContent = 'ACHIEVEMENT UNLOCKED';
+    textEl.textContent = achievement.name;
+    milestoneOverlay.classList.add('show');
+    saveState();
+    if (!reduceMotion) spawnConfetti(milestoneOverlay, 36);
+    playTierChime(5);
+    if (navigator.vibrate) navigator.vibrate([40, 40, 40]);
+    setTimeout(function () {
+      milestoneOverlay.classList.remove('show');
+      var pieces = milestoneOverlay.querySelectorAll('.confetti-piece');
+      pieces.forEach(function (p) { p.remove(); });
+    }, 3600);
+  }
+  // ---------- achievements ----------
+  var ACHIEVEMENTS = [
+    { id: 'first-anomaly', name: 'First Anomaly', check: function () { return !!state.hasRolledAnomaly; } },
+    { id: 'first-mythic', name: 'First Mythic', check: function () { return !!state.hasRolledMythic; } },
+    { id: 'century', name: 'Century Club (100 rolls)', check: function () { return state.totalRolls >= 100; } },
+    { id: 'millennium', name: 'Millennium Club (1,000 rolls)', check: function () { return state.totalRolls >= 1000; } },
+    { id: 'streak-10', name: 'On a Roll (10-roll discovery streak)', check: function () { return state.streaks.newLongest >= 10; } },
+  ];
+  CATEGORIES.forEach(function (cat) {
+    var ids = BADGES.filter(function (b) { return b.category === cat; }).map(function (b) { return b.id; });
+    ACHIEVEMENTS.push({
+      id: 'category-' + cat.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      name: cat + ' Master',
+      check: function () { return ids.every(function (id) { return !!state.badgeStats[id]; }); },
+    });
+  });
+
+  function spawnConfetti(container, count) {
+    var colors = ['#E8A33D', '#4FD1C5', '#5B8DEF', '#B565D9', '#FF6B6B', '#FFD166'];
+    for (var i = 0; i < count; i++) {
+      var el = document.createElement('div');
+      el.className = 'confetti-piece';
+      el.style.left = Math.round(Math.random() * 100) + '%';
+      el.style.background = colors[Math.floor(Math.random() * colors.length)];
+      el.style.animationDuration = (2.1 + Math.random() * 1.6) + 's';
+      el.style.animationDelay = Math.round(Math.random() * 500) + 'ms';
+      container.appendChild(el);
+    }
+  }
+
+
+  function animateCountUp(el, target, duration, onDone) {
+    if (!el) return;
+    if (reduceMotion || target === 0) { el.textContent = formatNumber(target); if (onDone) onDone(); return; }
+    var start = performance.now();
+    function tick(now) {
+      var t = Math.min(1, (now - start) / duration);
+      var eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = formatNumber(Math.round(target * eased));
+      if (t < 1) requestAnimationFrame(tick);
+      else { el.textContent = formatNumber(target); if (onDone) onDone(); }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---------- share card (canvas-rendered image of a roll) ----------
+  function buildShareCanvas(n, result) {
+    var W = 800, H = 1000;
+    var canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    var color = result.rarity.color;
+
+    // background
+    var bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#0F1216'); bg.addColorStop(1, '#0B0D10');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    var glow = ctx.createRadialGradient(W / 2, 230, 20, W / 2, 230, 420);
+    glow.addColorStop(0, color + '33'); glow.addColorStop(1, 'transparent');
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+
+    // brand
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(60, 66, 7, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ECE9E2';
+    ctx.font = '600 26px "Space Grotesk", sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('Drift', 80, 66);
+    ctx.fillStyle = '#565C67';
+    ctx.font = '13px "JetBrains Mono", monospace';
+    ctx.fillText('number discovery instrument', 80, 90);
+
+    // the number
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ECE9E2';
+    var numFontSize = n.toLocaleString('en-US').length > 7 ? 76 : 92;
+    ctx.font = '700 ' + numFontSize + 'px "JetBrains Mono", monospace';
+    ctx.fillText(n.toLocaleString('en-US'), W / 2, 235);
+
+    // rating pill
+    ctx.font = '700 20px "Space Grotesk", sans-serif';
+    var label = result.rarity.label.toUpperCase();
+    var pillW = ctx.measureText(label).width + 56;
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 - pillW / 2, 290, pillW, 44, 22); ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillText(label, W / 2, 313);
+
+    // EP
+    ctx.fillStyle = '#ECE9E2';
+    ctx.font = '700 46px "JetBrains Mono", monospace';
+    ctx.fillText(formatNumber(result.totalEP) + ' EP', W / 2, 400);
+    ctx.fillStyle = '#8A8F98';
+    ctx.font = '15px "JetBrains Mono", monospace';
+    ctx.fillText(result.badges.length + ' patterns detected', W / 2, 432);
+
+    // top badges list
+    ctx.textAlign = 'left';
+    var top = result.badges.slice().sort(function (a, b) { return b.ep - a.ep; }).slice(0, 8);
+    var listY = 500;
+    ctx.font = '600 13px "Space Grotesk", sans-serif';
+    ctx.fillStyle = '#565C67';
+    ctx.fillText('TOP DISCOVERIES', 70, listY);
+    listY += 36;
+    top.forEach(function (b) {
+      ctx.fillStyle = b.color;
+      ctx.beginPath(); ctx.arc(76, listY - 5, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ECE9E2';
+      ctx.font = '600 17px "Space Grotesk", sans-serif';
+      ctx.fillText(b.name, 96, listY);
+      ctx.fillStyle = '#565C67';
+      ctx.font = '13px "JetBrains Mono", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText((b.epAwarded > 0 ? '+' + formatNumber(b.epAwarded) : 'supporting'), W - 70, listY);
+      ctx.textAlign = 'left';
+      listY += 40;
+    });
+
+    // footer
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#565C67';
+    ctx.font = '12px "JetBrains Mono", monospace';
+    ctx.fillText('rolled at ' + new Date().toLocaleDateString(), W / 2, H - 40);
+
+    return canvas;
+  }
+  function roundRect(ctx, x, y, w, hgt, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + hgt, r);
+    ctx.arcTo(x + w, y + hgt, x, y + hgt, r);
+    ctx.arcTo(x, y + hgt, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+  function shareRoll(n, result) {
+    var canvas = buildShareCanvas(n, result);
+    if (!canvas) { alert('Sharing isn\'t supported in this browser.'); return; }
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      var file = new File([blob], 'drift-roll-' + n + '.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: 'Drift roll: ' + n, text: result.rarity.label + ' roll, ' + formatNumber(result.totalEP) + ' EP' })
+          .catch(function () { /* user cancelled share sheet; nothing to do */ });
+      } else {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'drift-roll-' + n + '.png'; a.click();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+      }
+    }, 'image/png');
+  }
+
+  function digitStripHtml(numStr, positions, small) {
+    var hitSet = {};
+    (positions || []).forEach(function (p) { hitSet[p] = true; });
+    var cells = numStr.split('').map(function (ch, i) {
+      return '<div class="dbox' + (hitSet[i] ? ' hit' : '') + '">' + ch + '</div>';
+    }).join('');
+    return '<div class="digit-strip' + (small ? ' sm' : '') + '">' + cells + '</div>';
+  }
+
+  // ---------- near-miss engine ----------
+  function computeNearMisses(n, result) {
+    var matchedIds = {};
+    result.badges.forEach(function (b) { matchedIds[b.id] = true; });
+    var s = String(n);
+    var candidates = [];
+    for (var pos = 0; pos < s.length; pos++) {
+      for (var d = 0; d <= 9; d++) {
+        if (String(d) === s[pos]) continue;
+        if (pos === 0 && d === 0 && s.length > 1) continue; // avoid leading zero changing digit count
+        var candidateStr = s.slice(0, pos) + d + s.slice(pos + 1);
+        var candidateN = Number(candidateStr);
+        if (candidateN === n) continue;
+        var candResult = analyzeNumber(candidateN);
+        var foundNewHigh = null;
+        candResult.badges.forEach(function (b) {
+          if (!matchedIds[b.id]) {
+            if (!foundNewHigh || b.tierOrder > foundNewHigh.tierOrder) foundNewHigh = b;
+          }
+        });
+        if (foundNewHigh && foundNewHigh.tierOrder >= 1) {
+          candidates.push({ pos: pos, from: s[pos], to: String(d), badge: foundNewHigh, tierOrder: foundNewHigh.tierOrder });
+        }
+      }
+    }
+    candidates.sort(function (a, b) { return b.tierOrder - a.tierOrder; });
+    var picked = [];
+    var seenBadge = {};
+    for (var i = 0; i < candidates.length && picked.length < 2; i++) {
+      var c = candidates[i];
+      if (seenBadge[c.badge.id]) continue;
+      seenBadge[c.badge.id] = true;
+      picked.push('Changing digit ' + (c.pos + 1) + ' from ' + c.from + ' \u2192 ' + c.to + ' would unlock <b>' + escapeHtml(c.badge.name) + '</b>.');
+    }
+    return picked;
+  }
+
+  rollBtn.addEventListener('click', runRollSequence);
+
+  // ============================================================
+  // COLLECTION VIEW
+  // ============================================================
+  var collapsedCategories = {}; // session-only; not persisted
+  function renderCollection() {
+    var found = Object.keys(state.badgeStats).length;
+    $('collectionCount').textContent = found + ' / ' + BADGES.length + ' discovered';
+    $('collectionProgress').style.width = Math.round((found / BADGES.length) * 100) + '%';
+
+    var query = ($('collectionSearch').value || '').trim().toLowerCase();
+    var tierFilter = $('collectionTierFilter').value;
+    var foundOnly = $('collectionFoundOnly').checked;
+
+    var byCat = {};
+    CATEGORIES.forEach(function (c) { byCat[c] = []; });
+    BADGES.forEach(function (b) { (byCat[b.category] || (byCat[b.category] = [])).push(b); });
+
+    var html = '';
+    CATEGORIES.forEach(function (cat) {
+      var list = byCat[cat] || [];
+      if (!list.length) return;
+      var catFoundCount = list.filter(function (b) { return !!state.badgeStats[b.id]; }).length;
+      var catPct = Math.round((catFoundCount / list.length) * 100);
+
+      var filtered = list.filter(function (b) {
+        if (tierFilter && b.tier !== tierFilter) return false;
+        if (foundOnly && !state.badgeStats[b.id]) return false;
+        if (query && b.name.toLowerCase().indexOf(query) === -1 && b.desc.toLowerCase().indexOf(query) === -1) return false;
+        return true;
+      });
+      if (!filtered.length) return; // whole category hidden if nothing matches the filters
+
+      var sorted = filtered.slice().sort(function (a, b) { return b.tierOrder - a.tierOrder || a.name.localeCompare(b.name); });
+      var collapsed = !!collapsedCategories[cat];
+      html += '<div class="category-block' + (collapsed ? ' collapsed' : '') + '" data-cat="' + escapeHtml(cat) + '">' +
+        '<div class="category-head">' +
+          '<span class="category-caret">\u25be</span>' +
+          '<span class="category-title">' + escapeHtml(cat) + '</span>' +
+          '<div class="category-progress-track"><div class="category-progress-fill" style="width:' + catPct + '%;"></div></div>' +
+          '<span class="category-count">' + catFoundCount + '/' + list.length + '</span>' +
+        '</div><div class="badge-grid">';
+      sorted.forEach(function (b) {
+        var stat = state.badgeStats[b.id];
+        if (stat) {
+          var personalRate = state.totalRolls ? ((stat.count / state.totalRolls) * 100) : 0;
+          var personalRateStr = personalRate >= 0.1 ? personalRate.toFixed(1) + '%' : '<0.1%';
+          html += '<div class="badge-card" style="--tier-color:' + b.color + '">' +
+            '<div class="bc-name">' + escapeHtml(b.name) + '</div>' +
+            '<div class="bc-desc">' + escapeHtml(b.desc) + '</div>' +
+            (stat.lastNumber ? '<div class="bc-example">' + digitStripHtml(stat.lastNumber, stat.lastPositions, true) + '</div>' : '') +
+            '<div class="bc-meta"><span class="tier">' + b.tierLabel + '</span><span>\u00d7' + stat.count + '</span></div>' +
+            '<div class="bc-extra">First on roll #' + stat.firstRoll + ' \u00b7 you: ' + personalRateStr + ' \u00b7 odds: 1 in ' + formatNumber(b.ep) + '</div>' +
+            '</div>';
+        } else {
+          html += '<div class="badge-card locked">' +
+            '<div class="bc-name">???</div>' +
+            '<div class="bc-desc">Undiscovered &middot; ' + b.tierLabel + ' rarity.</div>' +
+            '<div class="bc-meta"><span>Locked</span><span>&mdash;</span></div>' +
+            '<div class="bc-extra">Odds: about 1 in ' + formatNumber(b.ep) + '</div>' +
+            '</div>';
+        }
+      });
+      html += '</div></div>';
+    });
+    $('collectionBody').innerHTML = html || '<div class="empty-state">No badges match those filters.</div>';
+
+    $('collectionBody').querySelectorAll('.category-head').forEach(function (head) {
+      head.addEventListener('click', function () {
+        var block = head.closest('.category-block');
+        var cat = block.getAttribute('data-cat');
+        collapsedCategories[cat] = !collapsedCategories[cat];
+        block.classList.toggle('collapsed');
+      });
+    });
+  }
+  $('collectionSearch').addEventListener('input', renderCollection);
+  $('collectionTierFilter').addEventListener('change', renderCollection);
+  $('collectionFoundOnly').addEventListener('change', renderCollection);
+
+  // ============================================================
+  // HISTORY VIEW
+  // ============================================================
+  function renderHistory() {
+    var body = $('historyBody');
+    if (!state.history.length) {
+      body.innerHTML = '<div class="empty-state">No rolls yet. Every discovery you make will be logged here.</div>';
+      return;
+    }
+    var html = '';
+    state.history.forEach(function (h) {
+      var tierColor = colorForTier(h.rarity);
+      html += '<div class="history-row">' +
+        '<div class="hr-number">' + h.n + '</div>' +
+        '<div class="hr-rarity" style="color:' + tierColor + '">' + h.rarityLabel + '</div>' +
+        '<div class="hr-ep">+' + formatNumber(h.ep) + ' EP</div>' +
+        '<div class="hr-badges">' + h.badgeIds.length + ' badges' + (h.newBadgeIds.length ? ' &middot; ' + h.newBadgeIds.length + ' new' : '') + '</div>' +
+        '<div class="hr-time">' + timeAgo(h.ts) + '</div>' +
+        '</div>';
+    });
+    body.innerHTML = html;
+  }
+  function colorForTier(key) {
+    var found = ROLL_RATING.find(function (t) { return t.key === key; });
+    return found ? found.color : '#8B93A3';
+  }
+  function timeAgo(ts) {
+    var s = Math.floor((Date.now() - ts) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+
+  // ============================================================
+  // STATISTICS VIEW
+  // ============================================================
+  function renderStats() {
+    var h = state.history;
+    var totalRolls = state.totalRolls;
+    var avgEP = totalRolls ? Math.round(state.lifetimeEP / totalRolls) : 0;
+    var highestEP = h.reduce(function (m, r) { return Math.max(m, r.ep); }, 0);
+    var rarityRank = {};
+    ROLL_RATING.forEach(function (t) { rarityRank[t.key] = t.order; });
+    var highestRarity = h.reduce(function (m, r) { return rarityRank[r.rarity] > rarityRank[m] ? r.rarity : m; }, 'trash');
+    var uniqueBadges = Object.keys(state.badgeStats).length;
+    var dupDiscoveries = Object.values(state.badgeStats).reduce(function (a, b) { return a + Math.max(0, b.count - 1); }, 0);
+    var avgBadges = totalRolls ? (h.reduce(function (a, r) { return a + r.badgeIds.length; }, 0) / h.length || 0).toFixed(1) : '0';
+    var zeroNewRolls = h.filter(function (r) { return r.newBadgeIds.length === 0; }).length;
+    var zeroNewPct = totalRolls ? Math.round((zeroNewRolls / h.length) * 100) : 0;
+
+    var rarityCounts = {};
+    ROLL_RATING.forEach(function (t) { rarityCounts[t.key] = 0; });
+    h.forEach(function (r) { rarityCounts[r.rarity] = (rarityCounts[r.rarity] || 0) + 1; });
+    var maxRarityCount = Math.max(1, Math.max.apply(null, Object.values(rarityCounts)));
+
+    var html = '<div class="stats-grid">' +
+      statCard(formatNumber(totalRolls), 'Total Rolls') +
+      statCard(formatNumber(state.lifetimeEP), 'Total EP') +
+      statCard(formatNumber(avgEP), 'Average EP') +
+      statCard(formatNumber(highestEP), 'Highest EP') +
+      statCard(colorLabel(highestRarity), 'Highest Rarity') +
+      statCard(uniqueBadges + ' / ' + BADGES.length, 'Unique Badges') +
+      statCard(formatNumber(dupDiscoveries), 'Duplicate Discoveries') +
+      statCard(avgBadges, 'Avg Badges / Roll') +
+      statCard(zeroNewPct + '%', 'Rolls With No New Badge') +
+      statCard(formatNumber(state.streaks.noNewCurrent), 'Current No-New Streak') +
+      statCard(formatNumber(state.streaks.noNewLongest), 'Longest No-New Streak') +
+      statCard(formatNumber(state.streaks.newLongest), 'Longest Discovery Streak') +
+      '</div>';
+
+    html += '<div class="stat-card" style="margin-bottom:24px;"><div class="sl" style="margin-bottom:4px;">Rarity distribution</div>' +
+      '<div class="bar-chart">' + ROLL_RATING.map(function (t) {
+        var count = rarityCounts[t.key] || 0;
+        var h2 = Math.max(2, Math.round((count / maxRarityCount) * 100));
+        return '<div class="bar" style="height:' + h2 + 'px;background:linear-gradient(180deg,' + t.color + ',' + t.color + '55)"><span>' + t.label + '<br>' + count + '</span></div>';
+      }).join('') + '</div><div style="height:20px;"></div></div>';
+
+    // EP per roll, most recent rolls, log-scaled (a single Mythic hit would
+    // otherwise flatten everything else on a linear axis to invisibility)
+    var recentEP = h.slice(0, 80).reverse().map(function (r) { return r.ep; });
+    html += '<div class="stat-card" style="margin-bottom:24px;"><div class="sl" style="margin-bottom:4px;">EP per roll (most recent ' + recentEP.length + ', log scale)</div>' +
+      svgLineChart(recentEP.map(function (v) { return Math.log10(v + 1); }), { color: '#E8A33D' }) + '</div>';
+
+    // cumulative unique badges discovered, by the roll each was first found on
+    // -- built from firstRoll timestamps stored per badge, so unlike the EP
+    // chart above this reflects the FULL lifetime curve, not just recent history
+    var firstRolls = Object.values(state.badgeStats).map(function (s) { return s.firstRoll; }).sort(function (a, b) { return a - b; });
+    var cumulative = firstRolls.map(function (_, i) { return i + 1; });
+    html += '<div class="stat-card" style="margin-bottom:24px;"><div class="sl" style="margin-bottom:4px;">Badges discovered over time (full history)</div>' +
+      svgLineChart(cumulative, { color: '#4FD1C5' }) + '</div>';
+
+    $('statsBody').innerHTML = html;
+  }
+  function svgLineChart(values, opts) {
+    opts = opts || {};
+    var w = 600, h = 150, pad = 6;
+    if (values.length < 2) return '<div class="empty-state" style="padding:24px 10px;">Not enough rolls yet.</div>';
+    var max = Math.max.apply(null, values);
+    var min = Math.min.apply(null, values);
+    var range = Math.max(1e-9, max - min);
+    var stepX = (w - pad * 2) / (values.length - 1);
+    var pts = values.map(function (v, i) {
+      var x = pad + i * stepX;
+      var y = h - pad - ((v - min) / range) * (h - pad * 2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var color = opts.color || 'var(--accent)';
+    var areaPts = pts.join(' ') + ' ' + (pad + (values.length - 1) * stepX).toFixed(1) + ',' + (h - pad) + ' ' + pad + ',' + (h - pad);
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="line-chart" preserveAspectRatio="none">' +
+      '<polyline points="' + areaPts + '" fill="' + color + '" fill-opacity="0.14" stroke="none"></polyline>' +
+      '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>' +
+      '</svg>';
+  }
+  function statCard(v, l) { return '<div class="stat-card"><div class="sv">' + v + '</div><div class="sl">' + l + '</div></div>'; }
+  function colorLabel(key) {
+    var t = ROLL_RATING.find(function (x) { return x.key === key; });
+    return t ? t.label : 'Common';
+  }
+
+  // ============================================================
+  // RESEARCH / DEBUG PANEL
+  // ============================================================
+  var researchOn = false;
+  $('toggleResearch').addEventListener('click', function () {
+    researchOn = !researchOn;
+    $('researchPanel').style.display = researchOn ? 'block' : 'none';
+    if (researchOn) renderResearchPanel();
+  });
+  $('resetAllBtn').addEventListener('click', function () {
+    if (confirm('Reset all progress? This clears your EP, badges, and history.')) {
+      state = freshState();
+      soundOn = false;
+      updateSoundLabel();
+      saveState();
+      renderTopStats();
+      renderCollection();
+      renderHistory();
+      renderStats();
+      badgeList.innerHTML = '';
+      discoveries.style.display = 'none';
+      summaryCard.style.display = 'none';
+      nearMiss.style.display = 'none';
+      ratingPill.classList.remove('show');
+      reelRowWrap.classList.remove('rated');
+      reelFrame.classList.remove('aura-rare', 'aura-epic', 'aura-anomaly', 'aura-mythic');
+      stopMythicRays();
+      stopGlow();
+      resetCutsceneStage();
+      milestoneOverlay.classList.remove('show');
+      $('onboardHint').style.display = 'block';
+      setStatus('Ready to investigate.');
+    }
+  });
+
+  function renderResearchPanel() {
+    var panel = $('researchPanel');
+    panel.innerHTML =
+      '<div class="research-panel">' +
+        '<h3>Research &amp; debug tools</h3>' +
+        '<div class="research-controls">' +
+          '<input type="text" id="testNumberInput" placeholder="e.g. 583214" maxlength="7">' +
+          '<button class="small-btn" id="analyzeTestBtn">Analyze</button>' +
+          '<button class="small-btn" id="forceRollBtn">Force roll this number</button>' +
+          '<button class="small-btn" id="sim100Btn">Simulate 100</button>' +
+          '<button class="small-btn" id="sim1000Btn">Simulate 1,000</button>' +
+          '<button class="small-btn" id="unlockAllBtn">Unlock all badges</button>' +
+          '<button class="small-btn" id="resetCollectionBtn">Reset collection only</button>' +
+          '<button class="small-btn" id="exportBtn">Export research data (JSON)</button>' +
+        '</div>' +
+        '<h3>Visual &amp; audio FX preview <span style="color:var(--text-faint);font-weight:400;font-size:11px;">(no roll needed)</span></h3>' +
+        '<div class="research-controls">' +
+          '<button class="small-btn" id="fxAura3">Preview Rare aura</button>' +
+          '<button class="small-btn" id="fxAura4">Preview Epic aura</button>' +
+          '<button class="small-btn" id="fxAura5">Preview Anomaly aura</button>' +
+          '<button class="small-btn" id="fxAura6">Preview Mythic aura</button>' +
+          '<button class="small-btn" id="fxCutscene">Play Mythic cutscene</button>' +
+          '<button class="small-btn" id="fxClearAura">Clear aura</button>' +
+        '</div>' +
+        '<div class="research-controls">' +
+          '<button class="small-btn" id="fxMilestone25">Preview 25% milestone</button>' +
+          '<button class="small-btn" id="fxMilestone50">Preview 50% milestone</button>' +
+          '<button class="small-btn" id="fxMilestone75">Preview 75% milestone</button>' +
+          '<button class="small-btn" id="fxMilestone100">Preview 100% milestone</button>' +
+          '<button class="small-btn" id="fxAchievement">Preview achievement</button>' +
+          '<button class="small-btn" id="fxRibbon">Preview "New Best" ribbon</button>' +
+        '</div>' +
+        '<div class="research-controls">' +
+          '<button class="small-btn" id="fxChime0">Chime: Trash</button>' +
+          '<button class="small-btn" id="fxChime2">Chime: Uncommon</button>' +
+          '<button class="small-btn" id="fxChime3">Chime: Rare</button>' +
+          '<button class="small-btn" id="fxChime4">Chime: Epic</button>' +
+          '<button class="small-btn" id="fxChime5">Chime: Anomaly</button>' +
+          '<button class="small-btn" id="fxChime6">Chime: Mythic</button>' +
+          '<button class="small-btn" id="fxSweep">Charge sweep</button>' +
+        '</div>' +
+        '<div class="research-log" id="researchLog">Ready.</div>' +
+      '</div>';
+
+    $('analyzeTestBtn').addEventListener('click', function () {
+      var v = Number($('testNumberInput').value);
+      if (!Number.isInteger(v) || v < 0 || v > 1000000) { logResearch('Enter an integer between 0 and 1,000,000.'); return; }
+      var r = analyzeNumber(v);
+      logResearch(v + ' \u2192 ' + r.badges.length + ' badges, ' + r.totalEP + ' EP, ' + r.rarity.label + '\n' +
+        r.badges.map(function (b) { return '  ' + b.name + ' (' + b.tierLabel + ', ' + (b.epAwarded > 0 ? '+' + b.epAwarded : 'supporting') + ')'; }).join('\n'));
+    });
+    $('forceRollBtn').addEventListener('click', function () {
+      var v = Number($('testNumberInput').value);
+      if (!Number.isInteger(v) || v < 0 || v > 1000000) { logResearch('Enter an integer between 0 and 1,000,000 to force-roll.'); return; }
+      switchView('roll');
+      logResearch('Forcing full roll sequence for ' + v + '\u2026');
+      runRollSequence(v);
+    });
+    $('sim100Btn').addEventListener('click', function () { simulate(100); });
+    $('sim1000Btn').addEventListener('click', function () { simulate(1000); });
+    $('unlockAllBtn').addEventListener('click', function () {
+      BADGES.forEach(function (b) {
+        if (!state.badgeStats[b.id]) state.badgeStats[b.id] = { count: 1, epTotal: b.ep, firstRoll: state.totalRolls };
+      });
+      saveState(); renderTopStats(); logResearch('All ' + BADGES.length + ' badges marked as discovered.');
+    });
+    $('resetCollectionBtn').addEventListener('click', function () {
+      state.badgeStats = {}; saveState(); renderTopStats(); logResearch('Collection cleared (history and EP untouched).');
+    });
+    $('exportBtn').addEventListener('click', function () {
+      var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = 'drift-research-data.json'; a.click();
+      URL.revokeObjectURL(url);
+      logResearch('Exported ' + state.history.length + ' history entries and ' + Object.keys(state.badgeStats).length + ' badge records.');
+    });
+
+    // ---- FX previews ----
+    function previewAura(order) {
+      switchView('roll');
+      var t = ROLL_RATING[order];
+      ratingPill.textContent = t.label;
+      ratingPill.style.setProperty('--tier-color', t.color);
+      reelRowWrap.style.setProperty('--tier-color', t.color);
+      reelFrame.style.setProperty('--tier-color', t.color);
+      reelRowWrap.classList.add('rated');
+      ratingPill.classList.add('show');
+      applyAura(order);
+      if (order >= 6) startMythicRays();
+      logResearch('Previewing ' + t.label + ' aura (no state changed).');
+    }
+    [3, 4, 5, 6].forEach(function (order) {
+      $('fxAura' + order).addEventListener('click', function () { previewAura(order); });
+    });
+    $('fxCutscene').addEventListener('click', function () {
+      switchView('roll');
+      ensureAudio();
+      var sampleN = 777777;
+      var fakeResult = { totalEP: 1284000, badges: new Array(23), rarity: ROLL_RATING[6] };
+      playMythicCutscene(sampleN, fakeResult, function () {
+        logResearch('Cutscene finished (preview only -- no roll was recorded).');
+      });
+      logResearch('Playing Mythic cutscene preview for ' + sampleN + '.');
+    });
+    $('fxClearAura').addEventListener('click', function () {
+      reelFrame.classList.remove('aura-rare', 'aura-epic', 'aura-anomaly', 'aura-mythic');
+      stopMythicRays();
+      stopGlow();
+      resetCutsceneStage();
+      reelRowWrap.classList.remove('rated');
+      ratingPill.classList.remove('show');
+      logResearch('Aura cleared.');
+    });
+    [25, 50, 75, 100].forEach(function (pct) {
+      $('fxMilestone' + pct).addEventListener('click', function () {
+        ensureAudio();
+        celebrateMilestoneRaw(pct);
+        logResearch('Previewing ' + pct + '% milestone celebration (not marked as shown).');
+      });
+    });
+    $('fxRibbon').addEventListener('click', function () {
+      switchView('roll');
+      summaryCard.style.display = 'block';
+      summaryCard.style.setProperty('--tier-color', '#E8A33D');
+      summaryCard.innerHTML =
+        '<div class="summary-number">483920</div>' +
+        '<div class="summary-ep" style="color:#E8A33D">1,284</div>' +
+        '<div class="summary-meta">Preview \u00b7 New Best ribbon</div>' +
+        '<div class="pb-ribbon">NEW BEST</div>';
+      summaryCard.classList.add('show');
+      logResearch('Previewing the New Best ribbon.');
+    });
+    [0, 2, 3, 4, 5, 6].forEach(function (order) {
+      $('fxChime' + order).addEventListener('click', function () {
+        ensureAudio(); playTierChime(order);
+      });
+    });
+    $('fxSweep').addEventListener('click', function () { ensureAudio(); playChargeSweep(700); });
+  }
+  // milestone preview that doesn't mutate state.milestonesShown
+  function celebrateMilestoneRaw(pct) {
+    var eyebrowEl = milestoneOverlay.querySelector('.milestone-eyebrow');
+    var textEl = milestoneOverlay.querySelector('.milestone-text');
+    eyebrowEl.textContent = 'MILESTONE';
+    textEl.textContent = pct === 100 ? 'Every badge discovered.' : pct + '% of all badges discovered';
+    milestoneOverlay.classList.add('show');
+    if (!reduceMotion) spawnConfetti(milestoneOverlay, 42);
+    playTierChime(6);
+    setTimeout(function () {
+      milestoneOverlay.classList.remove('show');
+      milestoneOverlay.querySelectorAll('.confetti-piece').forEach(function (p) { p.remove(); });
+    }, 3600);
+  }
+  function logResearch(msg) {
+    var log = $('researchLog');
+    if (log) log.textContent = msg + '\n\n' + log.textContent;
+  }
+  function simulate(count) {
+    var t0 = performance.now();
+    var epTotal = 0, badgeHits = 0;
+    var rarityCounts = {};
+    for (var i = 0; i < count; i++) {
+      var n = rollRandomNumber();
+      var r = analyzeNumber(n);
+      epTotal += r.totalEP;
+      badgeHits += r.badges.length;
+      rarityCounts[r.rarity.label] = (rarityCounts[r.rarity.label] || 0) + 1;
+    }
+    var ms = Math.round(performance.now() - t0);
+    logResearch('Simulated ' + count + ' rolls in ' + ms + 'ms (analysis only, not saved to history).\n' +
+      'Avg EP: ' + Math.round(epTotal / count) + ' \u00b7 Avg badges: ' + (badgeHits / count).toFixed(1) + '\n' +
+      Object.entries(rarityCounts).map(function (e) { return e[0] + ': ' + e[1]; }).join(', '));
+  }
+
+  // ---------- init ----------
+  renderTopStats();
+  if (!state.totalRolls) setStatus('Ready to investigate.');
+  else setStatus('Welcome back. Roll again?');
+
+  function dismissOnboarding() {
+    $('onboardHint').style.display = 'none';
+    if (!state.onboardingSeen) { state.onboardingSeen = true; saveState(); }
+  }
+  if (!state.onboardingSeen) $('onboardHint').style.display = 'block';
+  $('onboardDismiss').addEventListener('click', dismissOnboarding);
+})();
+
+</script>
+</body>
+</html>
